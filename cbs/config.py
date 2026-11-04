@@ -420,6 +420,17 @@ class NewsConfig(BaseModel):
         return https_url(value)
 
 
+class SetupHelperConfig(BaseModel):
+    enabled: bool = True
+    url: str = 'https://raw.githubusercontent.com/whitelabel1940/awalia/main/onboarding/setup_helper.md'
+
+    @field_validator('url')
+    @classmethod
+    def secure_url(cls, value):
+        from cbs.news import https_url
+        return https_url(value)
+
+
 class ShareConfig(BaseModel):
     url: str = 'https://github.com/whitelabel1940/awalia'
     hashtag: str = 'Awalia'
@@ -463,6 +474,7 @@ class Config(BaseModel):
     costs: CostsConfig = Field(default_factory=CostsConfig)
     first_run: FirstRunConfig = Field(default_factory=FirstRunConfig)
     news: NewsConfig = Field(default_factory=NewsConfig)
+    setup_helper: SetupHelperConfig = Field(default_factory=SetupHelperConfig)
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
     share: ShareConfig = Field(default_factory=ShareConfig)
     storage: "StorageConfig" = Field(default_factory=lambda: StorageConfig())

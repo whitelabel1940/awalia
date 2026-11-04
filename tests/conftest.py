@@ -71,6 +71,13 @@ def offline_news(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def offline_setup_helper(monkeypatch):
+    async def unavailable(url):
+        raise OSError('offline test')
+    monkeypatch.setattr('cbs.web.setup_helper.fetch_guide', unavailable)
+
+
+@pytest.fixture(autouse=True)
 def offline_telemetry(monkeypatch):
     async def unavailable(host, key, batch):
         raise OSError('offline test')

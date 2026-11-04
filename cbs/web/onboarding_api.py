@@ -25,7 +25,7 @@ def explanation(screen, root=ROOT / 'onboarding'):
     return {'text': text, 'version': hashlib.sha256(raw).hexdigest()}
 
 
-def install_onboarding(app, data_dir, atomic_write):
+def install_onboarding(app, data_dir, atomic_write, setup_helper_config):
     path = data_dir / 'settings.toml'
 
     def saved():
@@ -35,6 +35,12 @@ def install_onboarding(app, data_dir, atomic_write):
     @app.get('/api/onboarding/state')
     def state():
         return {'consent': saved().get('onboarding', {}).get('consent')}
+
+    @app.get('/api/onboarding/setup-helper')
+    async def helper():
+        from cbs.web.setup_helper import setup_helper
+        return await setup_helper(setup_helper_config, data_dir,
+                                  first_run=app.state.first_run)
 
     @app.get('/api/onboarding/{screen}')
     def copy(screen: str):

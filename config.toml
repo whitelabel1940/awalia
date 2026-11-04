@@ -434,6 +434,10 @@ model = "openai/gpt-6.1-sol"
 label = "標準（おすすめ）"
 description = "設定に関わらず AI だと答えることがあります。"
 
+[setup_helper]
+enabled = true
+url = "https://raw.githubusercontent.com/whitelabel1940/awalia/main/onboarding/setup_helper.md"
+
 [news]
 enabled = true
 url = "https://raw.githubusercontent.com/whitelabel1940/awalia/main/news/news.json"

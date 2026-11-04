@@ -160,7 +160,7 @@ def install_settings(app, pipeline, pipelines, data_dir, selected):
     from cbs.web.setup_api import install_setup
     install_setup(app, pipeline, data_dir, current, atomic_write)
     from cbs.web.onboarding_api import install_onboarding
-    install_onboarding(app, data_dir, atomic_write)
+    install_onboarding(app, data_dir, atomic_write, pipeline.config.setup_helper)
 
     @app.get("/api/settings")
     def settings(request: Request):
