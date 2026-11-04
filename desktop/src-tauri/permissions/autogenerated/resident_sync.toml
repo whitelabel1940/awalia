@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resident-sync"
+description = "Enables the resident_sync command without any pre-configured scope."
+commands.allow = ["resident_sync"]
+
+[[permission]]
+identifier = "deny-resident-sync"
+description = "Denies the resident_sync command without any pre-configured scope."
+commands.deny = ["resident_sync"]

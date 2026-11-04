@@ -1,0 +1,74 @@
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {readFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+const require=createRequire(import.meta.url),{JSDOM}=require('../.tmp/m9b_dom/node_modules/jsdom');
+const dom=new JSDOM(readFileSync(new URL('../cbs/web/static/index.html',import.meta.url),'utf8'),{url:'https://unit.invalid/#talk',runScripts:'outside-only'});
+for(const key of ['window','document','location','localStorage','history'])globalThis[key]=dom.window[key];
+let topScrolls=0,anchorScrolls=0;window.scrollTo=()=>{topScrolls++;};
+dom.window.HTMLElement.prototype.scrollIntoView=function(){if(this.id==='partner-requests')anchorScrolls++;};
+const cfg=JSON.parse(execFileSync('.venv/Scripts/python.exe',['-c',"import json; from pathlib import Path; from cbs.config import load_config; print(json.dumps(load_config(data_dir=Path('.tmp/ad1/node_config')).model_dump()))"],{encoding:'utf8'}));
+Object.assign(cfg,{ai_ready:true,connection_verified:true,warnings:[],keys:{},reindex_required:false,tts:null});
+cfg.advanced_presets=cfg.advanced.presets;
+const initial={version:0,fields:{first_person:'私',second_person:'あなた',register:'自然に',length:'短く'},lines:[],limits:{max_lines:40,max_line_chars:300,max_field_chars:1000},can_undo:false};
+let state=structuredClone(initial),before=structuredClone(initial),stream,serial=0;
+const calls=[],response=x=>new Response(JSON.stringify(x),{headers:{'Content-Type':'application/json'}});
+globalThis.fetch=async(path,options={})=>{
+  const route=path.split('?')[0],body=options.body?JSON.parse(options.body):null;calls.push({route,path,body});
+  if(route==='/api/partner')return response({partner:{id:'yuki',name:'ユキ'}});
+  if(route==='/api/settings')return response(cfg);
+  if(route==='/api/look')return response({expressions:[]});
+  if(route==='/api/persona')return response({ai_question:'honest'});
+  if(route==='/api/characters/yuki/augment')return response({questions:[]});
+  if(route==='/api/sources')return response([]);
+  if(route==='/api/embedding/download')return response({status:'ready'});
+  if(route==='/api/import/jobs')return response({jobs:[]});
+  if(route==='/api/partner/requests'){
+    if(body){before=structuredClone(state);state={...state,...body,version:++serial,source:'settings',updated_at:'2026-10-20T12:00:00+09:00',can_undo:true,lines:body.lines.map((l,i)=>({...l,id:l.id||`r${serial}-${i}`}))};}
+    return response(state);
+  }
+  if(route==='/api/partner/requests/undo'){const last=state;state={...before,version:++serial,source:'undo',can_undo:true};before=last;return response(state);}
+  if(route==='/api/sessions')return response(body?{id:'s'}:[]);
+  if(route==='/api/proactive/opening')return response({speak:false});
+  if(route.endsWith('/messages/stream'))return new Response(new ReadableStream({start(controller){stream=controller;}}));
+  throw Error('Unexpected offline endpoint: '+route);
+};
+const tick=async()=>{for(let i=0;i<12;i++)await new Promise(r=>setImmediate(r));};
+const event=(type,data)=>stream.enqueue(new TextEncoder().encode(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`));
+const view=async hash=>{location.hash=hash;window.dispatchEvent(new window.HashChangeEvent('hashchange'));await tick();};
+const click=async text=>{const b=[...document.querySelectorAll('#partner-requests button')].find(b=>b.textContent===text);assert(b,text);await b.onclick();await tick();};
+await import('../cbs/web/static/user.js');await tick();
+document.getElementById('message').value='これからはぼくで';document.getElementById('composer').dispatchEvent(new window.Event('submit',{cancelable:true}));await tick();
+event('reply',{turn_id:7,assistant_text:'ぼくで話すね。',assistant_at:'2026-10-20T12:00:00+09:00',expression:'neutral'});await tick();
+assert(!document.getElementById('send').disabled);assert.equal(document.querySelectorAll('.request-notice').length,0);
+event('partner_requests',{turn_id:7,notices:['一人称を「ぼく」にしました','<img src=x onerror=alert(1)>']});
+event('partner_requests',{turn_id:7,notices:['重複']});event('self_forming',{turn_id:7});await tick();
+assert.equal(document.querySelectorAll('.request-notice').length,1);assert.equal(document.querySelectorAll('.forming-notice').length,1);
+assert.equal(document.querySelector('.request-notice img'),null);
+assert.equal(document.querySelector('.request-notice a').getAttribute('href'),'#settings/relationship');
+localStorage.setItem('cbs.settingsTab','ai');
+const oldTopScrolls=topScrolls;
+await view('#settings/partner-requests');
+assert.equal(topScrolls,oldTopScrolls);assert(anchorScrolls>=1);
+assert(document.getElementById('partner-requests'));assert(!document.getElementById('settings-content').hidden);
+assert(document.body.textContent.includes('ユキへのお願い'));
+const requestLabel=document.getElementById('request-lines').parentElement,help=document.getElementById('request-lines-help');
+assert.equal(requestLabel.firstChild.textContent,'ユキへのお願い');
+assert.equal(help.parentElement,requestLabel);assert.equal(help.nextElementSibling.id,'request-lines');
+assert.equal(document.getElementById('request-lines').getAttribute('aria-describedby'),help.id);
+assert.equal(document.getElementById('request-length').parentElement.nextElementSibling,requestLabel);
+assert.equal(document.activeElement.id,'partner-requests');
+const input=(id,value)=>{const e=document.getElementById(id);e.value=value;e.dispatchEvent(new window.Event('input'));};
+input('request-first_person','ぼく');input('request-lines','絵文字を使わない\n先に結論から');
+await click('話し方とお願いを保存');assert.equal(state.fields.first_person,'ぼく');assert.equal(state.lines.length,2);
+assert(document.body.textContent.includes('設定で'));assert(document.body.textContent.includes('保存しました'));
+const ref=state.lines[1].id;
+input('request-lines','先に結論から\n新しいお願い');await click('話し方とお願いを保存');assert.equal(state.lines[0].id,ref);
+await click('一つ前に戻す');assert.equal(document.getElementById('request-lines').value,'絵文字を使わない\n先に結論から');
+// Dark theme and phone use the existing shared controls; long text stays inside the section.
+document.documentElement.dataset.theme='dark';window.innerWidth=375;
+assert.equal(document.querySelector('#request-lines').maxLength,-1);assert.equal(document.querySelector('#request-first_person').maxLength,1000);
+assert(calls.filter(c=>c.route.startsWith('/api/partner/requests')).every(c=>c.path.includes('character_id=yuki')));
+await view('#talk');assert.equal(document.querySelectorAll('.request-notice').length,1);
+stream.close();await tick();
+console.log('PASS AD1 offline DOM: fields, save/undo, row IDs, direct anchor/focus, delayed original-turn notice, dedupe, escaping, EX1 coexistence, partner scope');

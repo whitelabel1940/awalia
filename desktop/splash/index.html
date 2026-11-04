@@ -1,0 +1,6 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Awalia</title>
+<style>:root{color-scheme:light dark}body{margin:0;min-height:100vh;display:grid;place-content:center;text-align:center;background:#faf7f2;color:#302e35;font:16px system-ui}img{width:min(340px,70vw);height:auto;margin:0 auto 8px}.dark{display:none}p{line-height:1.8;padding:0 2rem}small{color:#706774}@media(prefers-color-scheme:dark){body{background:#24232a;color:#ede7e1}.light{display:none}.dark{display:block}}</style>
+<img class="light" src="vertical-light.svg" alt="Awalia ふたりのあわいに、絆を育む。"><img class="dark" src="vertical-dark.svg" alt="" aria-hidden="true"><p id="status" role="status">ふたりの場所を準備しています…</p>
+<small>少しだけお待ちください。</small>
+<script>window.addEventListener('DOMContentLoaded',async()=>{const show=code=>{document.getElementById('status').textContent=(code==='port-in-use'?'起動用のポートが使用中です。':'準備が止まりました。')+' Pythonやポートの設定を確認し、トレイの「終了」から起動し直してください。記録: desktop-resident.log（設定データのフォルダ内）';};try{await window.__TAURI__.event.listen('resident-error',e=>show(e.payload));const context=await window.__TAURI__.core.invoke('resident_context');if(context.error)show(context.error);}catch{}});</script></html>

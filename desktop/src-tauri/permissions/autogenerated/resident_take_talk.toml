@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resident-take-talk"
+description = "Enables the resident_take_talk command without any pre-configured scope."
+commands.allow = ["resident_take_talk"]
+
+[[permission]]
+identifier = "deny-resident-take-talk"
+description = "Denies the resident_take_talk command without any pre-configured scope."
+commands.deny = ["resident_take_talk"]

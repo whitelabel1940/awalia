@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resident-opening"
+description = "Enables the resident_opening command without any pre-configured scope."
+commands.allow = ["resident_opening"]
+
+[[permission]]
+identifier = "deny-resident-opening"
+description = "Denies the resident_opening command without any pre-configured scope."
+commands.deny = ["resident_opening"]

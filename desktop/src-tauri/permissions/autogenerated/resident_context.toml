@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resident-context"
+description = "Enables the resident_context command without any pre-configured scope."
+commands.allow = ["resident_context"]
+
+[[permission]]
+identifier = "deny-resident-context"
+description = "Denies the resident_context command without any pre-configured scope."
+commands.deny = ["resident_context"]

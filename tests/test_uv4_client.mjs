@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {readFileSync} from 'node:fs';
+const require=createRequire(import.meta.url),{JSDOM}=require('../.tmp/m9b_dom/node_modules/jsdom');
+const dom=new JSDOM(readFileSync(new URL('../cbs/web/static/index.html',import.meta.url),'utf8'),{url:'http://unit.invalid/'});
+for(const key of ['window','document','location','localStorage'])globalThis[key]=dom.window[key];
+window.scrollTo=()=>{};
+assert(!document.querySelector('.head').textContent.includes('日々を、少しずつ。'));
+assert(document.querySelector('#subtitle'));
+const {sequence,choiceCards}=await import('../cbs/web/static/onboarding.js');
+const root=document.getElementById('screen');let selected='',back=0;
+const flow=sequence(root,[{id:'question',chapter:'くわしく',render:p=>choiceCards(p,'質問',[['a','短い答え'],['b','説明つき','説明']],selected,v=>selected=v),next:()=> 'look'},{id:'look',chapter:'見た目',explanation:true,backAction:()=>back++,render:p=>p.append('説明'),skip:()=> 'done'},{id:'done',chapter:'バックアップ',label:'ユキと話しはじめる',render:()=>{}}],{progressFor:s=>s.id==='question'?{label:'今のこと',current:2,total:5}:{current:1,total:1}});
+await flow.start();assert.equal(root.querySelector('.chapter-caption').textContent,'今のこと2 / 5');assert.equal(root.querySelectorAll('.chapter-progress>.done').length,2);assert.equal(root.querySelectorAll('.chapter-progress>.on').length,1);assert.equal(root.querySelector('.choice-label').tagName,'SPAN');
+const input=root.querySelector('input');input.checked=true;input.onchange();assert.equal(selected,'a');
+await root.querySelector('.primary').onclick();assert.deepEqual([...root.querySelectorAll('.wizard-actions button')].map(b=>b.textContent),['戻る','飛ばす','次へ']);await root.querySelector('.wizard-actions button').onclick();assert.equal(back,1);
+await root.querySelector('.primary').onclick();assert.equal(root.querySelector('.primary').textContent,'ユキと話しはじめる');assert.equal(root.querySelector('.done-actions').lastElementChild.textContent,'戻る');
+console.log('PASS UV4 DOM: page heading, segmented progress, stage caption, choice labels, next/back/skip, done actions');

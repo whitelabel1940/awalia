@@ -1,0 +1,11 @@
+cbs/
+bootstrap/
+onboarding/
+desktop/
+release/
+news/
+tests/
+config.toml
+pyproject.toml
+requirements.lock
+requirements-local-embedding.lock

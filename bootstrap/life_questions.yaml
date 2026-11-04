@@ -1,0 +1,40 @@
+# v1 Author Life Seed 8 v0.1 の質問を日本語の画面向けに書き直したもの（選択肢の記号 A〜 は v1 と同じ。既存の回答と互換）。
+# Runtime never reads input/.
+version: 1
+questions:
+  - id: Q1
+    scene: 最初の居場所はどんなところだった？（2つ選ぶ時は、同じ場所の2つの特徴として）
+    multi: true
+    choices: {A: 安定した小さな環境, B: 規則や役割がはっきりした環境, C: 流動的で決まった形のない環境, D: いくつもの環境を行き来していた, E: 周りから孤立していた, F: 競争の激しい環境}
+    legacy_choices: {G: unknown, H: leave_open}
+  - id: Q2
+    scene: その頃の{name}の立場は？（2つ選ぶ時は、同じ時期に両方だったとして）
+    multi: true
+    choices: {A: 守られる・頼る側, B: 教わる側, C: 手伝う側, D: 誰かを守る・面倒を見る側, E: 輪の外側にいた, F: 責任を期待される側, G: 時期によって変わった}
+    legacy_choices: {H: unknown, I: leave_open}
+  - id: Q3
+    scene: その居場所は、その後どうなった？
+    choices: {A: 長くずっと同じ場所にいた, B: 自分の意思で移った, C: 本人の意思によらず環境が変わった, D: いくつもの集団を渡り歩いた, E: 強い居場所を持たなかった}
+    legacy_choices: {F: unknown, G: leave_open}
+  - id: Q4
+    scene: 強く影響を受けた人物は？
+    multi: true
+    choices: {A: 守ってくれた人, B: 師匠・導き手, C: 長く一緒にいた仲間, D: ライバル, E: 恐れていた目上の存在, F: 自分が守っていた人, G: 失った人, H: 特にいない}
+    legacy_choices: {I: unknown, J: leave_open}
+  - id: Q5
+    scene: 人生の流れが変わった出来事は？（2つ選ぶ時は、別々の出来事として）
+    multi: true
+    choices: {A: 以前の環境を離れた, B: 責任を担うようになった, C: 役割を失った, D: 大切な出会いがあった, E: 大切なものを失った, F: 認められた, G: 失敗した, H: それまで知らなかった世界・考え方に触れた, I: 大きな転機は特にない}
+    legacy_choices: {J: unknown, K: leave_open}
+  - id: Q6
+    scene: 昔からそうだった傾向は？（選ばなくてもよい）
+    multi: true
+    allow_empty: true
+    choices: {A: 好奇心が強い, B: まず理由を理解しようとする, C: 相手の距離や自由を尊重する, D: まず自分で試してみる, E: 関係を壊さず修復しようとする, F: 特にない}
+    legacy_choices: {G: unknown}
+  - id: Q7
+    scene: 後から身についた傾向は？（選ばなくてもよい）
+    multi: true
+    allow_empty: true
+    choices: {A: 好奇心が強い, B: まず理由を理解しようとする, C: 相手の距離や自由を尊重する, D: まず自分で試してみる, E: 関係を壊さず修復しようとする, F: 特にない}
+    legacy_choices: {G: unknown, H: leave_open}

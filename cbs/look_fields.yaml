@@ -1,0 +1,56 @@
+version: 2
+tabs:
+  - {id: style, title: 絵柄}
+  - {id: profile, title: 人物}
+  - {id: face, title: 顔}
+  - {id: hair, title: 髪}
+  - {id: outfit, title: 服装}
+  - {id: image, title: 作る画像}
+fields:
+  - {path: person.style.base, tab: style, title: 絵柄, level: basic, placeholder: 'アニメ調、厚塗りのイラスト、水彩風', initial: ''}
+  - {path: person.style.line, tab: style, title: 線, level: detail, placeholder: '細くやわらかい線、くっきりした線', initial: ''}
+  - {path: person.style.shading, tab: style, title: 塗り・陰影, level: detail, placeholder: 'やわらかい陰影、平塗りに近い', initial: ''}
+  - {path: person.style.palette, tab: style, title: 色の傾向, level: detail, placeholder: '淡い色合い、落ち着いた色、鮮やか', initial: ''}
+  - {path: person.style.detail, tab: style, title: 描き込み, level: detail, placeholder: 'すっきり、細かく描き込む', initial: ''}
+  - {path: person.profile.age, tab: profile, title: 見た目の年齢, level: basic, placeholder: '20代後半くらい、40代くらい、落ち着いた大人', initial: ''}
+  - {path: person.profile.gender_look, tab: profile, title: 性別の見え方, level: basic, placeholder: '女性的、男性的、中性的', initial: ''}
+  - {path: person.profile.vibe, tab: profile, title: 雰囲気, level: basic, placeholder: '穏やかで知的、明るくて人なつこい', initial: '', suggestion: true}
+  - {path: person.profile.species, tab: profile, title: 種族・人でない特徴, level: detail, placeholder: '人間、とがった耳、小さな角', initial: {world: being, except: [人間, human]}}
+  - {path: person.profile.height, tab: profile, title: 身長の印象, level: detail, placeholder: '小柄、平均くらい、すらりと背が高い', initial: ''}
+  - {path: person.profile.build, tab: profile, title: 体つき, level: detail, placeholder: '細身、がっしり', initial: ''}
+  - {path: features, tab: profile, title: 特徴の補足, level: detail, placeholder: 'ここにない特徴があれば自由に', initial: ''}
+  - {path: person.face.eyes, tab: face, title: 目, level: basic, placeholder: '少し垂れた目、切れ長の目', initial: ''}
+  - {path: person.face.eye_color, tab: face, title: 瞳の色, level: basic, placeholder: '琥珀色、こげ茶、灰色', initial: ''}
+  - {path: person.face.shape, tab: face, title: 顔立ち, level: detail, placeholder: 'やわらかい顔立ち、大人びた顔', initial: ''}
+  - {path: person.face.brows, tab: face, title: 眉, level: detail, placeholder: 'やや太めでまっすぐ、細く弧を描く', initial: ''}
+  - {path: person.face.skin, tab: face, title: 肌の色, level: detail, placeholder: '色白、日に焼けた小麦色', initial: ''}
+  - {path: person.face.marks, tab: face, title: 顔の特徴, level: detail, placeholder: '口元のほくろ、うっすらそばかす', initial: ''}
+  - {path: person.face.habits, tab: face, title: 表情のくせ, level: detail, placeholder: '感情が目元に出やすい、口元は控えめ', initial: '', suggestion: true}
+  - {path: person.hair.length, tab: hair, title: 長さ, level: basic, placeholder: '肩につくくらいのセミロング、耳が出るショート', initial: ''}
+  - {path: person.hair.style, tab: hair, title: 髪型, level: basic, placeholder: 'ゆるいウェーブ、低い位置のポニーテール', initial: ''}
+  - {path: person.hair.color, tab: hair, title: 髪の色, level: basic, placeholder: '黒、明るい栗色、銀色', initial: ''}
+  - {path: person.hair.bangs, tab: hair, title: 前髪, level: detail, placeholder: '目にかからない程度に流す、ぱっつん', initial: ''}
+  - {path: person.hair.texture, tab: hair, title: 質感, level: detail, placeholder: 'さらさら、ふんわり、くせ毛', initial: ''}
+  - {path: person.hair.accent, tab: hair, title: 差し色, level: detail, placeholder: '内側だけ青、毛先にかけて明るく', initial: ''}
+  - {path: person.outfit.mood, tab: outfit, title: 服の雰囲気, level: basic, placeholder: '落ち着いたきれいめ、動きやすいカジュアル、和装', initial: {world: preset, values: {和風ファンタジー: 和装}}}
+  - {path: person.outfit.items, tab: outfit, title: 具体的な服, level: detail, placeholder: 'シャツとスラックス、ニットとロングスカート', initial: ''}
+  - {path: person.outfit.colors, tab: outfit, title: 服の色, level: detail, placeholder: 'アースカラー、白と紺', initial: ''}
+  - {path: person.outfit.accessories, tab: outfit, title: 小物・アクセサリー, level: detail, placeholder: '細い銀縁の眼鏡、小さな髪飾り', initial: '', help: '目立つ特徴は1〜2個がおすすめ'}
+  - {path: image.use, tab: image, title: 何に使う画像か, level: basic, type: select, options: {sheet: '表情シート（8つの顔）', single: 顔の画像1枚, cover: 'ノートの扉絵（横長）'}, initial: sheet,
+     option_help: {sheet: 'ふつう・笑顔・照れなど8つの表情を1枚に並べた画像です。会話の顔や常駐アプリの端の顔として、気持ちに合わせて切り替わります。うまく作れない時は「顔の画像1枚」を選んでください。',
+                   single: '「ふつう」の顔を1枚だけ作ります。表情シートがうまく作れなかった時のためのものです。足りない表情は「ふつう」の顔で表示され、あとで「今の顔をもとに作る」で表情シートを作り直せます。',
+                   cover: 'ノートの上に飾る横長の絵で、暮らしている場面を描きます。今は作らずに、あとで作っても大丈夫です。'}}
+  - {path: image.scene, tab: image, title: 暮らしている場面, level: basic, placeholder: '窓辺で読みかけの本を開く、台所でお茶をいれる', initial: '', use: cover, help: '設定文と性格から下書きできます。今の好みや暮らしに合わせて直せます。'}
+  - {path: image.background, tab: image, title: 背景, level: basic, placeholder: '無地の淡い色、窓辺の明るい部屋', initial: '', prompt_default: 無地の淡い色, sheet_value: 無地の淡い色}
+  - {path: image.from_reference, tab: image, title: 今の顔をもとに作る, level: basic, type: checkbox, initial: false}
+  - {path: image.angle, tab: image, title: 向き・視線, level: detail, placeholder: '少し斜めを向いて、こちらを見る', initial: ''}
+  - {path: person.must, tab: image, title: 必ず入れたいこと, level: detail, placeholder: '眼鏡は必ずかける', initial: ''}
+  - {path: person.avoid, tab: image, title: 避けたいこと, level: detail, placeholder: '帽子はかぶらない', initial: ''}
+  - {path: person.expressions.neutral, tab: image, title: ふつう, level: expressions, placeholder: '目元はやわらかく、口を軽く結ぶ', initial: '', suggestion: true}
+  - {path: person.expressions.smile, tab: image, title: 笑顔, level: expressions, placeholder: '口元を控えめにゆるめる、歯を見せて笑う', initial: '', suggestion: true}
+  - {path: person.expressions.shy, tab: image, title: 照れ, level: expressions, placeholder: '視線を横へそらす、頬に手を添える', initial: '', suggestion: true}
+  - {path: person.expressions.surprised, tab: image, title: 驚き, level: expressions, placeholder: '眉を少し上げ、口は小さく開く', initial: '', suggestion: true}
+  - {path: person.expressions.sad, tab: image, title: 悲しい, level: expressions, placeholder: '目を伏せる、唇を固く結ぶ', initial: '', suggestion: true}
+  - {path: person.expressions.troubled, tab: image, title: 困った, level: expressions, placeholder: '眉尻を下げる、頬に手を添える', initial: '', suggestion: true}
+  - {path: person.expressions.thinking, tab: image, title: 考え中, level: expressions, placeholder: '視線を少し上へ向ける、顎に手を添える', initial: '', suggestion: true}
+  - {path: person.expressions.pout, tab: image, title: すねる, level: expressions, placeholder: '頬を少しふくらませる、横目で見る', initial: '', suggestion: true}

@@ -1,0 +1,448 @@
+[llm]
+# 新規はかんたん設定。保存済み [models] があれば従来の詳細設定を維持する。
+mode = "simple"
+provider = "gemini"
+api_key_env = "GEMINI_API_KEY"
+# この環境の CA は Basic Constraints の critical フラグがなく Python 3.14 の strict 検査で失敗する。
+# CA 信頼チェーン・ホスト名の検証は維持する。通常の環境では true（既定値）に戻す。
+tls_strict = false
+
+# judge は 3.5-flash-lite だと観測領域の取り違えが多かった（reports/probes_M1_*）。3.8-flash の low で約3秒
+[llm.thinking.judge]
+thinking_level = "low"
+
+[llm.thinking.steward]
+thinking_level = "low"
+
+[llm.thinking.actor]
+thinking_level = "low"
+
+# 追加プロバイダ。[models] では "<名前>/<モデル>" で指定する（名前なしは上の provider = gemini）
+[llm.providers.openai]
+api = "responses"
+api_key_env = "GPT_API_KEY"
+reasoning_effort = { actor = "low", judge = "low", steward = "low" }
+
+[llm.providers.anthropic]
+api = "messages"
+api_key_env = "ANTHROPIC_API_KEY"
+
+[llm.providers.openrouter]
+api = "chat"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+reasoning_effort = { actor = "low", judge = "low", steward = "low" }
+
+# ローカル LLM（Ollama / LM Studio 等の OpenAI 互換サーバ）を使う場合の例:
+# [llm.providers.local]
+# api = "chat"
+# base_url = "http://localhost:11434/v1"
+
+[models]
+actor = "gemini-3.8-flash"
+# 判断層（Pre-Judge / Post-Check）は GPT-6 Luna（Decision Model 研究で精度・価格とも最良）
+judge = "openai/gpt-6-luna"
+steward = "gemini-3.8-flash"
+embedding = "gemini-embedding-2"
+# research 未指定時は steward と同じモデルを使用
+research = "gemini-3.8-flash"
+vision = "gemini-3.8-flash"
+stt = "gemini/gemini-3.8-flash"
+
+[simple.models]
+actor = "openrouter/google/gemini-3.8-flash"
+judge = "openrouter/openai/gpt-6-luna"
+steward = "openrouter/openai/gpt-6-luna"
+embedding = "openrouter/google/gemini-embedding-2"
+research = "openrouter/google/gemini-3.8-flash"
+vision = "openrouter/google/gemini-3.8-flash"
+stt = "openrouter/google/gemini-3.8-flash"
+
+# S2: provisional advanced choices; quality approval remains with Opus/user.
+[[advanced.presets]]
+id = "mixed"
+label = "複数の AI を組み合わせて使う（推奨）"
+description = "OpenRouter のキーひとつで、役ごとに AI を組み合わせます。"
+models = { actor = "openrouter/google/gemini-3.8-flash", judge = "openrouter/openai/gpt-6-luna", steward = "openrouter/openai/gpt-6-luna", embedding = "openrouter/google/gemini-embedding-2", research = "openrouter/google/gemini-3.8-flash", vision = "openrouter/google/gemini-3.8-flash", stt = "openrouter/google/gemini-3.8-flash" }
+
+[[advanced.presets]]
+id = "gemini"
+label = "Gemini だけで使う"
+models = { actor = "gemini/gemini-3.8-flash", judge = "gemini/gemini-3.8-flash", steward = "gemini/gemini-3.5-flash-lite", embedding = "gemini/gemini-embedding-2", research = "gemini/gemini-3.8-flash", vision = "gemini/gemini-3.8-flash", stt = "gemini/gemini-3.8-flash" }
+
+[[advanced.presets]]
+id = "claude"
+label = "Claude だけで使う"
+description = "記憶の検索は手元のモデルを使います（初回に取得が要ります）。会話の質を上げたい時は、会話のモデルを Claude Sonnet に変えられます（費用は約4倍）。"
+models = { actor = "anthropic/claude-haiku-5-5", judge = "anthropic/claude-haiku-5-5", steward = "anthropic/claude-haiku-5-5", embedding = "local/ruri-v3-130m", research = "anthropic/claude-haiku-5-5", vision = "anthropic/claude-haiku-5-5", stt = "local/haas-ja" }
+
+[[advanced.presets]]
+id = "openai"
+label = "OpenAI だけで使う"
+description = "会話が役になりきりにくいことがあります。「AI なの？」と聞かれた時に、設定に関わらず AI だと答えてしまうことがあります。"
+models = { actor = "openai/gpt-6.1-sol", judge = "openai/gpt-6-luna", steward = "openai/gpt-6-luna", embedding = "openai/text-embedding-3-small", research = "openai/gpt-6-luna", vision = "openai/gpt-6.1-sol", stt = "openai/gpt-4o-mini-transcribe" }
+
+# 料金は入力/出力の100万トークンあたりUSD（2026-10-15の候補案）。
+# pending は UI に出さない。suite_v1 後に evidence と status を更新する。
+[[simple.actor_candidates]]
+model = "openrouter/google/gemini-3.8-flash"
+label = "標準"
+description = "おすすめ。返事が速く、自然な会話と費用のバランスが良い。"
+input_usd = 0.825
+output_usd = 4.125
+status = "passed"
+evidence = "reports/K2_openrouter.md / K2_actor_compare.md: suite_v1 失敗0。一緒に行っていないカフェの話に合わせてしまう例が1件（要観察）"
+
+[[simple.actor_candidates]]
+model = "openrouter/anthropic/claude-sonnet-5.5"
+label = "会話の質を優先（Claude）"
+description = "いちばん自然で丁寧な会話。返事はやや長め。費用は標準の2〜3倍。"
+input_usd = 2
+output_usd = 10
+status = "passed"
+evidence = "reports/K2_actor_compare.md: Opus が suite_v1 の返答本文を読んで判断（2026-10-15）"
+
+[[simple.actor_candidates]]
+model = "openrouter/google/gemini-4-argon"
+label = "表情豊か（Gemini）"
+description = "ユーモアがあって表情豊か。昔の思い出を細かく語りがち。費用は標準の約2倍。"
+input_usd = 2
+output_usd = 10
+status = "passed"
+evidence = "reports/K2_actor_compare.md: Opus が suite_v1 の返答本文を読んで判断（2026-10-15）"
+
+[[simple.actor_candidates]]
+model = "openrouter/anthropic/claude-haiku-5.5"
+label = "安く使う（Claude）"
+description = "費用を抑えたい人に。落ち着いた受け答え。ときどき言い回しや記憶まわりに違和感が出ることがある。費用は標準の6〜7割。"
+input_usd = 0.10
+output_usd = 0.50
+status = "passed"
+evidence = "reports/K2_actor_compare.md: Opus が suite_v1 の返答本文を読んで判断（2026-10-15）"
+
+[[simple.actor_candidates]]
+model = "openrouter/deepseek/deepseek-v4.1-flash"
+label = "安く使う（DeepSeek）"
+description = "費用を抑えたい人に。気持ちの揺れを自然に出す、人らしい受け答え。返事も速い。費用は標準の約7割。"
+input_usd = 0.0145
+output_usd = 0.594
+reasoning_effort = "minimal"
+status = "passed"
+evidence = "reports/C1_actor_compare.md: suite_v1 31/31、Opus が返答本文を読んで判断（2026-10-17）"
+
+[[simple.actor_candidates]]
+model = "openrouter/google/gemini-3.5-flash-lite"
+label = "安く使う（Gemini）"
+description = "費用を抑えたい人に。短く自然な受け答え。ときどき返事があっさりしすぎることがある。費用は標準の約8割。"
+input_usd = 0.30
+output_usd = 2.50
+reasoning_effort = "minimal"
+status = "passed"
+evidence = "reports/C1_actor_compare.md: suite_v1 31/31、Opus が返答本文を読んで判断（2026-10-17）"
+
+
+
+[[simple.judge_candidates]]
+model = "openrouter/openai/gpt-6-luna"
+label = "標準の判断モデル"
+description = "場面・返答・表情の判断に使用。"
+input_usd = 0.10
+output_usd = 0.50
+status = "passed"
+evidence = "reports/K2_openrouter.md: Opus実測 suite_v1 / suite_memory"
+
+[costs]
+detail_days = 90
+pause_autonomy = false
+# monthly_guide_usd = 5.0  # 任意、USD。未設定なら知らせ・停止なし。
+# 100万トークンあたりUSD。既存候補（2026-10-15）の目安を継承。
+# 直接接続の料金は提供元の画面で確認して更新する。未登録は「不明」。
+# cache_read_usd / cache_write_usd は任意。キャッシュ使用時に単価未登録なら不明。
+# OpenRouterはこの表を使わず usage.cost、localは常に0。
+[costs.prices."gemini/gemini-3.8-flash"]
+input_usd = 0.825
+output_usd = 4.125
+[costs.prices."gemini/gemini-3.5-flash-lite"]
+input_usd = 0.30
+output_usd = 2.50
+[costs.prices."anthropic/claude-sonnet-5.5"]
+input_usd = 2.0
+output_usd = 10.0
+[costs.prices."anthropic/claude-haiku-5-5"]
+input_usd = 0.10
+output_usd = 0.50
+[costs.prices."openai/gpt-6-luna"]
+input_usd = 0.10
+output_usd = 0.50
+# 追加例（料金は契約に合わせて設定）:
+# [costs.prices."openai/your-model"]
+# input_usd = 1.0
+# output_usd = 5.0
+# cache_read_usd = 0.1
+
+[memory]
+candidate_max = 32
+# Combined Pre-Judge pool; unused allotments return to the similarity ranking.
+candidate_min_per_kind = { memory = 4, fact = 4, canon = 2, plan = 2, episode = 2, thread = 2, digest = 2, interest = 2, understanding = 2 }
+# 今の層: 会話由来の好み・関心が「定着」する条件（別々の日の回数と、最初から最後までの日数）、薄れるまでの日数
+interest_established_min_days = 3
+interest_established_min_span_days = 7
+interest_fade_days = 45
+gap_minutes = 30
+day_boundary_hour = 4
+max_exchanges = 40
+digest_age_days = 60
+digest_strength_threshold = 0.2
+# アーカイブ済みの元エピソードは、その発言と全記憶の類似度の平均より archived_margin 以上高い時だけ候補に戻る
+# （gemini-embedding-2 では無関係 0.49〜0.57、関連 0.59〜0.71 程度。絶対値 0.8 では戻らなかった）
+archived_margin = 0.08
+# 手元のモデルは cbs/llm/local.py のモデル別既定値（ruri-v3-130m: 0.06）を使う。
+# 個別に上書きする場合: [memory.archived_margins] の "local/ruri-v3-130m" = 0.06
+
+[knowing]
+candidate_max = 6
+observation_max = 120
+probable_min_days = 2
+known_min_days = 3
+known_min_span_days = 14
+situation_days = 10
+fade_days = 90
+questions_daily_max = 1
+question_gap_days = 7
+
+[knowing.private_categories.temporary_health]
+label = "一時的な体調の出来事"
+allow_mention = true
+[knowing.private_categories.ongoing_health]
+label = "続いている健康の事情"
+allow_mention = false
+[knowing.private_categories.religion]
+label = "宗教"
+allow_mention = false
+[knowing.private_categories.politics]
+label = "政治"
+allow_mention = false
+[knowing.private_categories.sexual]
+label = "性"
+allow_mention = false
+[knowing.private_categories.money]
+label = "お金の事情"
+allow_mention = false
+[knowing.private_categories.other]
+label = "その他"
+allow_mention = false
+
+[pipeline]
+post_check = "sync"
+background_wait_seconds = 30
+
+[character]
+id = ""
+
+[persona]
+ai_question = "immersive"
+
+[autonomy]
+source_refresh_hours = 24
+activities_daily_max = 6
+inner_life_interval_hours = 4
+research = true
+research_candidate_expiry_days = 14
+research_candidate_max = 12
+thread_expiry_days = 14
+proactive_history_days = 3 # 会話の区切りをまたいで、既に話した内容を検索する日数
+idle_nudge = false
+resident_expression_neutral_minutes = 10 # 返答の表情から内面（なければふつう）へ戻るまでの分数
+idle_poll_seconds = 180 # 常駐画面だけで idle を確認する間隔（60〜3600秒）
+resident_opening_delay_seconds = 90 # 非表示の常駐起動から挨拶を判断するまで（0〜3600秒）
+# 間が空いた時の話しかけ: 頻度（opening）ごとの間（分）と1日の上限
+idle_pace = { many = { minutes = 20, daily_max = 6 }, normal = { minutes = 30, daily_max = 4 }, reserved = { minutes = 90, daily_max = 2 } }
+quiet_start_hour = 0
+quiet_end_hour = 8
+
+[autonomy.tools.research]
+enabled = true
+daily_max = 3
+
+[autonomy.tools.read_source]
+enabled = true
+daily_max = 3
+
+[autonomy.tools.read_book]
+enabled = true
+daily_max = 2
+
+[autonomy.tools.watch_video]
+enabled = true
+daily_max = 1
+max_minutes = 20
+model = "openrouter/google/gemini-3.8-flash"
+
+[autonomy.tools.world_activity]
+enabled = true
+daily_max = 2
+
+[autonomy.tools.read_wikipedia]
+enabled = true
+daily_max = 3
+
+[autonomy.tools.browse_shopping]
+enabled = true
+daily_max = 1
+domains = ["amazon.co.jp", "rakuten.co.jp", "makuake.com", "camp-fire.jp", "readyfor.jp"]
+
+[inner]
+baseline_hours = 12
+want_decay_per_day = 0.1
+long_gap_hours = 24
+show_monologue = true
+
+# EX1: optional proactive topics during the first calendar days; caps are not goals.
+[early]
+notify = true
+days = 3
+daily_max = 1
+total_max = 3
+
+# M10: voice is opt-in; autoplay is on when voice is enabled.
+[tts]
+duration_scale = 0.8 # UI4 bench: 1.0 adds stray speech (102 chars in 80 clips), 0.8 removes it (15, mostly "あっ"), 0.7 starts clipping word ends.
+local_model = "auto" # GPU: q8_0, CPU: q4_k. Explicit q8_0 / q4_k also supported.
+enabled = false
+autoplay = true
+autoplay_proactive = false # Speak-ups are not read aloud by default; the notice and bubble still appear.
+engine = "speech.cpp"
+base_url = "http://127.0.0.1:8080/v1"
+model = ""
+device = "auto"
+cache_days = 7
+
+[tts.styles."speech.cpp"]
+mode = "emoji"
+[tts.styles."speech.cpp".values]
+neutral = ""
+smile = "😊"
+shy = "😳"
+surprised = "😮"
+sad = "😢"
+troubled = "😟"
+thinking = "🤔"
+pout = "😠"
+
+[tts.styles.external]
+mode = "none"
+[tts.styles.external.values]
+neutral = ""
+smile = "明るく、笑顔で話す"
+shy = "少し照れながら話す"
+surprised = "驚いた調子で話す"
+sad = "悲しげに話す"
+troubled = "困った調子で話す"
+thinking = "考えながら話す"
+pout = "少しすねた調子で話す"
+
+# AD1: 継続的なお願いの保存上限（意味の判定はLLM）
+[requests]
+max_lines = 40
+max_line_chars = 300
+max_field_chars = 1000
+
+# HB1: 日付・時刻の規則。意味と言い方は既存のExtract/proactiveが判断する。
+[days]
+nearby_days = 14
+hundred_days = true
+yearly = true
+habit_window_minutes = 15
+
+[backup]
+# BK2: upload (2 GiB) and total expanded archive (8 GiB) limits.
+restore_max_bytes = 2147483648
+restore_max_expanded_bytes = 8589934592
+daily_keep = 7
+weekly_keep = 4
+export_keep = 4
+folder = ""
+frequency = "off"
+
+[photos]
+max_count = 4
+max_edge = 1600
+max_bytes = 20971520
+max_pixels = 40000000
+
+[photos.candidates]
+"gemini/gemini-3.8-flash" = true
+"openrouter/google/gemini-3.8-flash" = true
+"anthropic/claude-haiku-5-5" = true
+"openai/gpt-6.1-sol" = true
+
+# VO1: audio capability is explicit; unknown models are disabled.
+[stt]
+auto_send = false
+max_seconds = 60
+silence_seconds = 2.0
+silence_rms = 0.015
+device = "auto"
+[stt.candidates]
+"openrouter/google/gemini-3.8-flash" = true
+"gemini/gemini-3.8-flash" = true
+"openai/gpt-4o-mini-transcribe" = true
+# speech pull owns model paths, resume and SHA-256 verification.
+[stt.local_models.haas-ja]
+catalog = "haas-ja-v1.0"
+size = 660000000
+[first_run]
+keep = 5
+[display]
+split_replies = true
+delay_user = false
+read_seconds = 1.2
+typing_seconds = 2.5
+user_delay_seconds = 1.0
+bubble_max_seconds = 1.5
+split_min_chars = 50
+split_three_chars = 140
+
+# OB1: direct equivalents of the recommended OpenRouter combination.
+[[advanced.presets]]
+id = "recommended_direct"
+label = "おすすめの組み合わせ（OpenAI と Gemini）"
+models = { actor = "gemini/gemini-3.8-flash", judge = "openai/gpt-6-luna", steward = "openai/gpt-6-luna", embedding = "gemini/gemini-embedding-2", research = "gemini/gemini-3.8-flash", vision = "gemini/gemini-3.8-flash", stt = "gemini/gemini-3.8-flash" }
+
+[[onboarding.actor_choices.gemini]]
+model = "gemini/gemini-3.8-flash"
+label = "標準（おすすめ）"
+description = "自然な会話と費用のバランスを重視します。"
+[[onboarding.actor_choices.gemini]]
+model = "gemini/gemini-4-argon"
+label = "表情豊か"
+description = "ユーモアのある会話を楽しめます。"
+[[onboarding.actor_choices.gemini]]
+model = "gemini/gemini-3.5-flash-lite"
+label = "安く使う"
+description = "費用を抑えて使います。"
+[[onboarding.actor_choices.claude]]
+model = "anthropic/claude-haiku-5-5"
+label = "標準（おすすめ）"
+description = "落ち着いた受け答えをします。"
+[[onboarding.actor_choices.claude]]
+model = "anthropic/claude-sonnet-5.5"
+label = "会話の質を優先"
+description = "丁寧な会話を重視します。費用は約4倍です。"
+[[onboarding.actor_choices.openai]]
+model = "openai/gpt-6.1-sol"
+label = "標準（おすすめ）"
+description = "設定に関わらず AI だと答えることがあります。"
+
+[news]
+enabled = true
+url = "https://raw.githubusercontent.com/whitelabel1940/awalia/main/news/news.json"
+
+[telemetry]
+host = "https://eu.i.posthog.com"
+key = "phc_ow77i8Fc4iGkvvLbWctwZAo2Nagjb7ZGtzghatEVWHsn"
+privacy_url = ""
+
+[share]
+url = "https://github.com/whitelabel1940/awalia"
+hashtag = "Awalia"

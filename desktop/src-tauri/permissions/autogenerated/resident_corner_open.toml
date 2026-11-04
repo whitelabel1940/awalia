@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resident-corner-open"
+description = "Enables the resident_corner_open command without any pre-configured scope."
+commands.allow = ["resident_corner_open"]
+
+[[permission]]
+identifier = "deny-resident-corner-open"
+description = "Denies the resident_corner_open command without any pre-configured scope."
+commands.deny = ["resident_corner_open"]

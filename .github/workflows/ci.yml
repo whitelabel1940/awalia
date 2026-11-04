@@ -1,0 +1,49 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  app:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      # Some DOM tests start .venv\Scripts\python.exe themselves, as in the README.
+      - name: Install locked dependencies
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python -m pip install --require-hashes -r requirements-local-embedding.lock
+      - name: pytest
+        run: .venv\Scripts\python -m pytest -q -p no:cacheprovider --basetemp "${{ runner.temp }}\pytest"
+      - name: Client tests
+        shell: pwsh
+        # The DOM tests load jsdom from .tmp/m9b_dom, outside the app's own dependencies.
+        run: |
+          npm install --no-save --prefix .tmp/m9b_dom jsdom@29.1.1
+          $failed = 0
+          foreach ($test in Get-ChildItem tests -Filter *_client.mjs) {
+            node $test.FullName
+            if ($LASTEXITCODE -ne 0) { $failed++; Write-Host "FAILED $($test.Name)" }
+          }
+          if ($failed) { exit 1 }
+
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: cargo test
+        working-directory: desktop/src-tauri
+        run: cargo test --locked

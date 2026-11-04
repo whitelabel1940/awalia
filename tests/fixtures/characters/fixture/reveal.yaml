@@ -1,0 +1,22 @@
+generation: auto
+gates:
+  L1: {}
+  L2:
+    days: 2
+    deep_moments: 3
+    user_disclosures: 2
+  L3:
+    days: 5
+    deep_moments: 5
+    user_disclosures: 3
+secrets:
+- id: secret_lottery
+  life_ref: transition_archive
+  about: 担当を決めたくじの図柄
+  constraints:
+  - 紙工作の図柄である
+- id: secret_delivery
+  life_ref: rel_binder
+  about: 配達箱の模様
+  constraints:
+  - 架空の図案である

@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {readFileSync} from 'node:fs';
+const require=createRequire(import.meta.url),{JSDOM}=require('../.tmp/m9b_dom/node_modules/jsdom');
+const dom=new JSDOM(readFileSync(new URL('../desktop/splash/corner.html',import.meta.url),'utf8'),{url:'http://tauri.localhost/corner.html',runScripts:'outside-only'});
+globalThis.window=dom.window;globalThis.document=dom.window.document;
+const calls=[],events=new Map();
+window.__TAURI__={core:{invoke:async(name)=>{calls.push(name);if(name==='resident_corner_ready')assert(events.has('resident-corner'),'listener exists before native readiness');}},event:{listen:async(name,fn)=>{events.set(name,fn);}}};
+await import('data:text/javascript;base64,'+Buffer.from(readFileSync(new URL('../desktop/splash/corner.js',import.meta.url),'utf8')).toString('base64'));
+assert.deepEqual(calls,['resident_corner_ready']);
+const face=document.getElementById('face'),bubble=document.getElementById('bubble'),img=document.getElementById('image');
+events.get('resident-corner')({payload:{name:'テスト係',imageUrl:'http://127.0.0.1:18765/looks/fixture/smile?v=12',body:'<script>こんにちは。</script>'}});
+assert.equal(document.getElementById('body').textContent,'<script>こんにちは。</script>');
+assert.equal(document.querySelector('#body script'),null);assert(!bubble.hidden);assert(img.src.includes('/smile?'));
+img.onerror();assert(img.hidden);assert(!document.getElementById('initial').hidden);
+face.click();assert.equal(calls.at(-1),'resident_corner_open');
+face.onpointerdown({button:0,screenX:100,screenY:100});face.onpointermove({screenX:102,screenY:102});
+assert.equal(calls.filter(c=>c==='resident_corner_drag').length,0);
+face.onpointermove({screenX:110,screenY:104});face.onpointermove({screenX:120,screenY:104});face.onpointerup();face.click();
+assert.equal(calls.filter(c=>c==='resident_corner_drag').length,1);assert.equal(calls.filter(c=>c==='resident_corner_open').length,1,'drag does not also open conversation');
+face.onpointerdown({button:0,screenX:100,screenY:100});face.onpointerup();face.click();assert.equal(calls.filter(c=>c==='resident_corner_open').length,2);
+events.get('resident-corner')({payload:{name:'テスト係',imageUrl:'http://127.0.0.1:18765/looks/fixture/shy?v=13',body:null}});
+assert(bubble.hidden);assert(img.src.includes('/shy?'));assert(!img.hidden);
+for(const size of [64,96,128]){
+  events.get('resident-corner')({payload:{name:'テスト係',imageUrl:img.src,body:'同じ一文',faceSize:size}});
+  assert.equal(document.documentElement.style.getPropertyValue('--face-size'),`${size}px`);
+  assert.equal(document.documentElement.style.getPropertyValue('--corner-scale'),'1');
+  const css=dom.window.getComputedStyle(bubble);
+  assert.equal(css.width,'284px');assert.equal(css.height,'116px');assert.equal(css.padding,'12px 16px');
+  assert.equal(dom.window.getComputedStyle(document.getElementById('body')).fontSize,'14px');
+}
+events.get('resident-corner')({payload:{name:'テスト係',imageUrl:img.src,body:'小さい画面',faceSize:128,layoutScale:1.68}});
+assert.equal(document.documentElement.style.getPropertyValue('--corner-scale'),'1.68');
+dom.window.close();console.log('PASS M12-4 corner DOM: readiness, safe text, live expression, missing-image fallback, click, drag threshold, drag/click separation, face-only mode');

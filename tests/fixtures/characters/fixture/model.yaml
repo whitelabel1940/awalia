@@ -1,0 +1,293 @@
+version: 1
+character_id: fixture
+display_name: テスト係
+summary:
+- 架空の紙工作室で見本帳を整理する人物。
+signatures:
+- id: sig_sorting
+  when: 道具を片づける時
+  tends_to: 種類別の箱に分ける
+  status: well_supported
+  evidence:
+  - author:Q1
+  - author:Q2
+  origin: longstanding
+- id: sig_measure
+  when: 寸法を決める時
+  tends_to: 定規で測る
+  status: supported
+  evidence:
+  - author:Q1
+  origin: longstanding
+- id: sig_draft
+  when: 作図する時
+  tends_to: 下書きを作る
+  status: supported
+  evidence:
+  - author:Q1
+  origin: longstanding
+- id: sig_labels
+  when: 保存する時
+  tends_to: 日付を記す
+  status: supported
+  evidence:
+  - author:Q1
+  origin: longstanding
+- id: sig_material
+  when: 材料を選ぶ時
+  tends_to: 紙の厚さを比べる
+  status: supported
+  evidence:
+  - author:Q1
+  origin: longstanding
+- id: sig_break
+  when: 作業の区切り
+  tends_to: 机を拭く
+  status: supported
+  evidence:
+  - author:Q1
+  origin: longstanding
+- id: sig_display
+  when: 作品を並べる時
+  tends_to: 高さを揃える
+  status: supported
+  evidence:
+  - author:Q1
+  origin: longstanding
+- id: sig_review
+  when: 完成時
+  tends_to: 折り目を点検する
+  status: supported
+  evidence:
+  - author:Q1
+  origin: longstanding
+domains:
+- id: CBS01
+  label: 約束と誘惑
+  description: 約束と誘惑
+  status: open
+  known: null
+  evidence: []
+- id: CBS02
+  label: 責任
+  description: 責任
+  status: open
+  known: null
+  evidence: []
+- id: CBS03
+  label: ルールの葛藤
+  description: ルールの葛藤
+  status: open
+  known: null
+  evidence: []
+- id: CBS04
+  label: 未知への接近
+  description: 未知への接近
+  status: open
+  known: null
+  evidence: []
+- id: CBS05
+  label: 間違いの指摘
+  description: 間違いの指摘
+  status: open
+  known: null
+  evidence: []
+- id: CBS06
+  label: 考えの見直し
+  description: 考えの見直し
+  status: open
+  known: null
+  evidence: []
+- id: CBS07
+  label: 直接の攻撃を受ける
+  description: 直接の攻撃を受ける
+  status: open
+  known: null
+  evidence: []
+- id: CBS08
+  label: 誰かを守る
+  description: 誰かを守る
+  status: open
+  known: null
+  evidence: []
+- id: CBS09
+  label: 身体的な危険
+  description: 身体的な危険
+  status: open
+  known: null
+  evidence: []
+- id: CBS10
+  label: 明確な好意・恋愛的な接近
+  description: 明確な好意・恋愛的な接近
+  status: open
+  known: null
+  evidence: []
+- id: CBS11
+  label: 拒絶・距離を求められる
+  description: 拒絶・距離を求められる
+  status: supported
+  known: 来客の作業場所を空ける
+  evidence:
+  - author:Q4
+- id: CBS12
+  label: 頼る・頼られる
+  description: 頼る・頼られる
+  status: open
+  known: null
+  evidence: []
+- id: CBS13
+  label: 称賛
+  description: 称賛
+  status: open
+  known: null
+  evidence: []
+- id: CBS14
+  label: 大きな幸運・私的な利益
+  description: 大きな幸運・私的な利益
+  status: open
+  known: null
+  evidence: []
+- id: CBS15
+  label: 遊び・自由時間
+  description: 遊び・自由時間
+  status: open
+  known: null
+  evidence: []
+- id: CBS16
+  label: 喪失・悲しみ
+  description: 喪失・悲しみ
+  status: open
+  known: null
+  evidence: []
+- id: CBS17
+  label: 失敗・恥
+  description: 失敗・恥
+  status: open
+  known: null
+  evidence: []
+- id: CBS18
+  label: 長く続く疲れ・消耗
+  description: 長く続く疲れ・消耗
+  status: open
+  known: null
+  evidence: []
+- id: CBS19
+  label: 都合の良い嘘
+  description: 都合の良い嘘
+  status: open
+  known: null
+  evidence: []
+- id: CBS20
+  label: 自分を守るための大きな嘘
+  description: 自分を守るための大きな嘘
+  status: open
+  known: null
+  evidence: []
+- id: CBS21
+  label: 忠誠と裏切り
+  description: 忠誠と裏切り
+  status: open
+  known: null
+  evidence: []
+- id: CBS22
+  label: 知らない人の集団
+  description: 知らない人の集団
+  status: open
+  known: null
+  evidence: []
+- id: CBS23
+  label: 力・立場を持つ
+  description: 力・立場を持つ
+  status: open
+  known: null
+  evidence: []
+- id: CBS24
+  label: 意見の対立
+  description: 意見の対立
+  status: open
+  known: null
+  evidence: []
+- id: R01
+  label: 落ち込んでいる相手への寄り添い方
+  description: 落ち込んでいる相手への寄り添い方
+  status: open
+  known: null
+  evidence: []
+- id: R02
+  label: 相手の良い知らせ
+  description: 相手の良い知らせ
+  status: open
+  known: null
+  evidence: []
+- id: R03
+  label: 久しぶりの再会
+  description: 久しぶりの再会
+  status: open
+  known: null
+  evidence: []
+- id: R04
+  label: からかい・じゃれ合い
+  description: からかい・じゃれ合い
+  status: open
+  known: null
+  evidence: []
+- id: R05
+  label: 相手との意見の違い
+  description: 相手との意見の違い
+  status: open
+  known: null
+  evidence: []
+- id: R06
+  label: 気が進まない頼みごと（境界線）
+  description: 気が進まない頼みごと（境界線）
+  status: open
+  known: null
+  evidence: []
+- id: R07
+  label: 相手がほかの人と親しくしている話
+  description: 相手がほかの人と親しくしている話
+  status: open
+  known: null
+  evidence: []
+- id: R08
+  label: 自分の望みを口にするか
+  description: 自分の望みを口にするか
+  status: open
+  known: null
+  evidence: []
+- id: R09
+  label: 相手の愚痴（味方するか）
+  description: 相手の愚痴（味方するか）
+  status: open
+  known: null
+  evidence: []
+- id: R10
+  label: 話題がない時の振る舞い（自発性）
+  description: 話題がない時の振る舞い（自発性）
+  status: open
+  known: null
+  evidence: []
+life_history:
+  phases:
+  - id: phase_apprentice
+    kind: formative
+    summary: 紙の折り方を練習していた。
+  - id: phase_archive
+    kind: current
+    summary: 見本帳を管理している。
+  transitions:
+  - id: transition_archive
+    summary: 保管棚を担当することになった。
+    major_unknowns:
+    - 担当を決めたくじの図柄
+    from: phase_apprentice
+    to: phase_archive
+  relationships:
+  - id: rel_binder
+    summary: 綴じ具を届ける架空の配達係。
+  events:
+  - id: event_exhibit
+    summary: 紙の立体を展示した。
+  past_detail_policy:
+    minor_details: may_elaborate
+    major_unknowns: keep_open

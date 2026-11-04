@@ -1,0 +1,24 @@
+.wizard {display:block; max-width:1100px; margin:auto; height:auto; padding:24px;}
+.wizard-card {background:var(--panel,#fff); border:1px solid #ddd; border-radius:16px; padding:28px;}
+.wizard nav {display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px;}
+.wizard nav span {padding:6px 12px; border-radius:20px; background:#eee; color:#444;}
+.wizard nav .active {background:#3d6256; color:white;}
+.wizard label {display:block; margin:12px 0;}
+.wizard input:not([type=checkbox]), .wizard select, .wizard textarea {display:block; width:100%; max-width:700px; margin-top:5px; padding:10px; border:1px solid #bbb; border-radius:6px;}
+.wizard fieldset {border:1px solid #ddd; margin:16px 0; padding:16px; border-radius:8px;}
+.wizard .choice {display:flex; align-items:center; gap:8px;}
+.wizard .choice input {width:auto;}
+.wizard-actions {display:flex; flex-wrap:wrap; gap:12px; margin-top:24px;}
+.margin-note {background:#eef4ee; color:#345247; padding:14px; border-radius:8px;}
+.wizard table {width:100%; border-collapse:collapse; font-size:var(--type-ui);}
+.wizard td,.wizard th {padding:9px; text-align:left; border-bottom:1px solid #ddd; overflow-wrap:anywhere;}
+.wizard blockquote {margin:8px 0; padding:8px 12px; border-left:3px solid #9ab5a5; white-space:pre-wrap;}
+.wizard pre {white-space:pre-wrap; max-height:500px; overflow:auto;}
+.wizard .like-row {display:flex; align-items:end; gap:10px; flex-wrap:wrap;}
+.wizard .like-row label {flex:1; min-width:180px;}
+.wizard .progress {padding:30px; font-size:var(--type-note);}
+#wizard-error {color:#9f2835; white-space:pre-wrap;}
+dialog {max-width:650px; border:1px solid #ccc; border-radius:12px; padding:24px;}
+dialog::backdrop {background:#0006;}
+[hidden] {display:none !important;}
+@media(max-width:600px) {.wizard {padding:10px;} .wizard-card {padding:15px;} .wizard table {font-size:var(--type-ui);}}

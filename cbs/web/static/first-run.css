@@ -1,0 +1,2 @@
+/* Shared by the connection guide, welcome steps, conversation and inspector. */
+.trial-banner { position: sticky; top: 0; z-index: 100; padding: .35rem 1rem; text-align: center; font-size:var(--type-note); background: var(--subtle, #faf6ef); color: var(--fg, #333); border-bottom: 1px solid var(--line, #ddd); }

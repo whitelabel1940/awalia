@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Awalia</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar"><div><span class="mark">春</span><strong>Awalia</strong></div><div class="character-bar"><label for="characters">キャラクター</label><select id="characters"></select><a href="/wizard">キャラクターを作る</a><a id="augment-link" href="/wizard">追加の質問に答える</a></div></header>
+  <main>
+    <section class="chat-pane" aria-label="パートナーとの会話">
+      <div class="chat-heading"><div><p class="eyebrow">PARTNER</p><h1>パートナーと話す</h1></div><span class="presence">● ここにいるよ</span></div>
+      <div class="session-bar"><label for="sessions">会話</label><select id="sessions"></select><button id="new-session" type="button">＋ 新しい会話</button></div>
+      <div id="chat" class="chat" aria-live="polite"><p class="empty">今日、どんなことがあった？</p></div>
+      <form id="message-form"><label class="sr-only" for="message">メッセージ</label><textarea id="message" rows="2" maxlength="20000" placeholder="パートナーに話しかける…" required></textarea><button id="send" type="submit">送信</button></form>
+      <div class="footer"><span id="status" role="status">Enter で送信 · Shift + Enter で改行</span><span>会話はこのPCに保存</span></div>
+      <p id="error" role="alert" hidden></p>
+    </section>
+    <aside class="inspector" aria-label="Inspector">
+      <div class="inspector-heading"><p class="eyebrow">INSPECTOR</p><span>会話の裏側を確かめる</span></div>
+      <div class="tabs" role="tablist"><button id="turn-tab" role="tab" aria-selected="true" aria-controls="turn-panel">Turn</button><button id="haru-tab" role="tab" aria-selected="false" aria-controls="haru-panel">パートナー</button><button id="changes-tab" role="tab" aria-selected="false" aria-controls="changes-panel">Changes</button><button id="ledger-tab" role="tab" aria-selected="false" aria-controls="ledger-panel">Ledger</button><button id="secrets-tab" role="tab" aria-selected="false" aria-controls="secrets-panel">Secrets</button><button id="inner-tab" role="tab" aria-selected="false" aria-controls="inner-panel">内面</button></div>
+      <section id="inner-panel" role="tabpanel" aria-labelledby="inner-tab" hidden></section>
+      <section id="turn-panel" role="tabpanel" aria-labelledby="turn-tab"><p class="empty">会話のターンを選ぶと、判断と Packet が表示されます。</p></section>
+      <section id="haru-panel" role="tabpanel" aria-labelledby="haru-tab" hidden></section>
+      <section id="ledger-panel" role="tabpanel" aria-labelledby="ledger-tab" hidden></section>
+      <section id="changes-panel" role="tabpanel" aria-labelledby="changes-tab" hidden></section>
+      <section id="secrets-panel" role="tabpanel" aria-labelledby="secrets-tab" hidden></section>
+      <section id="activity-panel" role="tabpanel" aria-labelledby="activity-tab" hidden></section>
+      <section id="memory-panel" role="tabpanel" aria-labelledby="memory-tab" hidden></section>
+    </aside>
+  </main>
+</body>
+</html>

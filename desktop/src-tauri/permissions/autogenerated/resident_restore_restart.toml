@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resident-restore-restart"
+description = "Enables the resident_restore_restart command without any pre-configured scope."
+commands.allow = ["resident_restore_restart"]
+
+[[permission]]
+identifier = "deny-resident-restore-restart"
+description = "Denies the resident_restore_restart command without any pre-configured scope."
+commands.deny = ["resident_restore_restart"]

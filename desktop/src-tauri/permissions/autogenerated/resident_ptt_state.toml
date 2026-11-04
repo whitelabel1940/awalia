@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resident-ptt-state"
+description = "Enables the resident_ptt_state command without any pre-configured scope."
+commands.allow = ["resident_ptt_state"]
+
+[[permission]]
+identifier = "deny-resident-ptt-state"
+description = "Denies the resident_ptt_state command without any pre-configured scope."
+commands.deny = ["resident_ptt_state"]

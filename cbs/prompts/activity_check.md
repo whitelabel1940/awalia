@@ -1,0 +1,8 @@
+これは開発者が手動で依頼した自主活動の実接続確認です。verification_request に指定された道具を一回使ってください。
+read_source: 指定された source_id の候補のうち、自分の関心に合う記事を自分で選びます。
+read_book: 進行中の本があれば続きを読みます。初回は関心に合う青空文庫の作品を最大5つ提案します。
+実際に利用可能な候補・予算を守り、対象と感想は自分で判断してください。
+watch_video: 候補から指定された動画URLを選ぶ。world_activity: 世界内での活動を選び、verification_request.mode（adaptation / generation）を試したい旨をtaskに含める。read_wikipedia: 指定されたtopicを検索語taskにして読む。
+research: verification_request.topic の公開情報を調べる。動画を探す場合は、YouTubeの元動画のURLを出典として確認できるよう検索する。
+browse_shopping: verification_request.topic を公開情報の検索課題 task にする。買い物・クラウドファンディングのドメイン限定検索だけを使う。
+read_source で verification_request.source_item_id が指定された時は、その候補を選んで実際に読む。

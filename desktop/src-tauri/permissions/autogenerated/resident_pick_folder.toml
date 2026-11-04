@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resident-pick-folder"
+description = "Enables the resident_pick_folder command without any pre-configured scope."
+commands.allow = ["resident_pick_folder"]
+
+[[permission]]
+identifier = "deny-resident-pick-folder"
+description = "Denies the resident_pick_folder command without any pre-configured scope."
+commands.deny = ["resident_pick_folder"]

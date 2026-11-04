@@ -1,0 +1,72 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Awalia",
+  "version": "0.1.0",
+  "identifier": "jp.awalia.desktop",
+  "build": {
+    "frontendDist": "../splash"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "capabilities": [
+        {
+          "identifier": "resident",
+          "windows": [
+            "main"
+          ],
+          "remote": {
+            "urls": [
+              "http://127.0.0.1:*"
+            ]
+          },
+          "permissions": [
+            "core:event:default",
+            "allow-resident-context",
+            "allow-resident-opening",
+            "allow-resident-take-talk",
+            "allow-resident-ptt-state",
+            "allow-resident-ptt-preferences",
+            "allow-resident-notify",
+            "allow-resident-ui-ready",
+            "allow-resident-update-status",
+            "allow-resident-update-install",
+            "allow-resident-restore-restart",
+            "allow-resident-pick-folder",
+            "allow-resident-preferences",
+            "allow-resident-sync"
+          ]
+        },
+        {
+          "identifier": "corner",
+          "windows": [
+            "corner"
+          ],
+          "local": true,
+          "permissions": [
+            "core:event:allow-listen",
+            "core:event:allow-unlisten",
+            "allow-resident-corner-ready",
+            "allow-resident-corner-open",
+            "allow-resident-corner-drag"
+          ]
+        }
+      ]
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZEMzA0NzUzMjcxNkFCMDEKUldRQnF4WW5VMGN3YlJET29TSVV3dStwUXdqa3ptZEtDSmhidTE0aVdMWUFpL1RKZDlOdmpabnAK",
+      "endpoints": ["https://github.com/whitelabel1940/awalia/releases/latest/download/latest.json"],
+      "windows": {"installMode": "passive"}
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": [
+      "icons/app-light.png",
+      "icons/icon.ico"
+    ]
+  }
+}

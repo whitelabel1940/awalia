@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-resident-ui-ready"
+description = "Enables the resident_ui_ready command without any pre-configured scope."
+commands.allow = ["resident_ui_ready"]
+
+[[permission]]
+identifier = "deny-resident-ui-ready"
+description = "Denies the resident_ui_ready command without any pre-configured scope."
+commands.deny = ["resident_ui_ready"]
