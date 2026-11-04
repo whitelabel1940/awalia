@@ -13,11 +13,14 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # Day boundaries, quiet hours and diaries follow the PC's local time; the tests expect Japan time.
+      - name: Use Japan time
+        run: tzutil /s "Tokyo Standard Time"
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
       # Some DOM tests start .venv\Scripts\python.exe themselves, as in the README.
@@ -43,7 +46,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: cargo test
         working-directory: desktop/src-tauri
         run: cargo test --locked
