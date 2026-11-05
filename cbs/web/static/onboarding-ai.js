@@ -34,7 +34,7 @@ export async function onboardingAI(parent,{partnerOnly=false,first=!partnerOnly,
   if(settingsEntry){draft.method=cfg.llm.mode==='simple'?'oauth':'key';draft.combination=cfg.llm.mode==='simple'?'mixed':cfg.advanced_presets.find(p=>Object.entries(p.models).every(([r,m])=>cfg.models[r]===m))?.id||'custom';}
   const initial=JSON.stringify(draft);
   const showConsent=!state.consent;
-  let saveTelemetry=async()=>{};
+  let consent={agreed:()=>true,save:async()=>{}},consentReady=()=>{};
   let stopLogin,oauthReady=cfg.keys.openrouter==='set',downloadReady=false;
   let simple=cfg.llm.mode==='simple',downloads,flow,needsAI=repair||!cfg.ai_ready||!cfg.connection_verified;
   const preset=id=>cfg.advanced_presets.find(p=>p.id===id)?.models;
@@ -67,7 +67,7 @@ export async function onboardingAI(parent,{partnerOnly=false,first=!partnerOnly,
   const copyScreen=(id,chapter='AI')=>({id,chapter,explanation:true,render:body=>explanation(body,id)});
   const screens=[
     // The first screen carries the consent too, so starting is one press.
-    {id:'welcome',label:showConsent?'同意してはじめる':'はじめる',render:async body=>{body.classList.add('welcome');const logo=node('div',undefined,'welcome-logo');for(const theme of ['light','dark']){const image=node('img',undefined,`brand-${theme}`);image.src=`/static/brand/vertical-${theme}.svg`;image.alt=theme==='light'?'Awalia ふたりのあわいに、絆を育む。':'';if(theme==='dark')image.setAttribute('aria-hidden','true');logo.append(image);}body.append(logo);if(showConsent){const consent=node('div',undefined,'welcome-consent');body.append(consent);const copy=await explanation(consent,'consent');saveTelemetry=await telemetryConsent(consent);return copy;}},next:async copy=>{if(showConsent&&!state.consent){await saveTelemetry();state=await api('/api/onboarding/consent',{version:copy.version});}return 'ai';}},
+    {id:'welcome',label:showConsent?'同意してはじめる':'はじめる',pending:showConsent,enter:({setReady})=>{consentReady=setReady;setReady(!showConsent||consent.agreed());},render:async body=>{body.classList.add('welcome');const logo=node('div',undefined,'welcome-logo');for(const theme of ['light','dark']){const image=node('img',undefined,`brand-${theme}`);image.src=`/static/brand/vertical-${theme}.svg`;image.alt=theme==='light'?'Awalia ふたりのあわいに、絆を育む。':'';if(theme==='dark')image.setAttribute('aria-hidden','true');logo.append(image);}body.append(logo);if(showConsent){const box=node('div',undefined,'welcome-consent');body.append(box);const copy=await explanation(box,'consent');consent=await telemetryConsent(box,{onChange:ready=>consentReady(ready)});return copy;}},next:async copy=>{if(showConsent&&!state.consent){if(!consent.agreed())return false;await consent.save();state=await api('/api/onboarding/consent',{version:copy.version});}return 'ai';}},
     {...copyScreen('ai'),render:async body=>{const copy=await explanation(body,'ai');if(!settingsEntry)setupHelper(body);return copy;},next:()=>cfg.ai_ready&&cfg.connection_verified?'summary':'method'},
     {id:'method',render:body=>choice(body,'設定のしかた',[['oauth','かんたん（OpenRouter と連携）'],['key','API キーで設定']],'method'),next:()=>draft.method==='oauth'?'oauth':'combination'},
     {id:'oauth',back:'method',pending:true,render:body=>{

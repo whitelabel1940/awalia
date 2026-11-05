@@ -22,7 +22,11 @@ export function renderExplanation(parent,text,name=''){
   // Copy without a heading line shows no heading.
   if(lines[0]?.startsWith('# '))parent.append(node('h2',lines.shift().slice(2)));
   function inline(element,value){
-    for(const [i,part]of value.split('**').entries())element.append(node(i%2?'strong':'span',part));
+    // A single line break inside a paragraph is kept as a break, as authors expect when editing the copy.
+    for(const [n,row]of value.split('\n').entries()){
+      if(n)element.append(node('br'));
+      for(const [i,part]of row.split('**').entries())element.append(node(i%2?'strong':'span',part));
+    }
   }
   let paragraph=[],list;
   const flush=()=>{if(paragraph.length){const p=node('p');inline(p,paragraph.join('\n'));parent.append(p);paragraph=[];}};

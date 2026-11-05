@@ -17,7 +17,7 @@ globalThis.fetch=async(path,options={})=>{
   else if(route==='/api/onboarding/state')value={consent:null};
   else if(route==='/api/onboarding/consent'&&body)value={consent:{version:'consent'}};
   else if(route.startsWith('/api/onboarding/'))value={text:'# はじめに\n\n説明',version:'consent'};
-  else if(route==='/api/telemetry'){if(body)enabled=body.enabled;value={enabled,available,configured,text:'利用状況を送る <img src=x onerror=alert(1)>',version:'label-version',privacy_url:privacy};}
+  else if(route==='/api/telemetry'){if(body)enabled=body.enabled;value={enabled,available,configured,text:'**注意事項**\n以下を確認してください。\n- 利用状況を送る <img src=x onerror=alert(1)>\n- 会話は送らない',version:'label-version',privacy_url:privacy};}
   else if(route==='/api/telemetry/sent')value=[{event:'error',timestamp:'2026-11-04T10:00:00+09:00',properties:{type:'<img src=x onerror=alert(1)>',version:'0.1.0'}}];
   else if(route==='/api/telemetry/step'){if(failStep)throw new Error('offline');value={ok:true};}
   else assert.fail(`Unexpected fake request ${route}`);
@@ -29,8 +29,18 @@ const {telemetrySettings}=await import('../cbs/web/static/telemetry.js');
 const {sequence,ONBOARDING_STEPS}=await import('../cbs/web/static/onboarding.js');
 async function welcome(){root.replaceChildren();void onboardingAI(root);await tick();return root.querySelector('input[type=checkbox]');}
 let input=await welcome();assert(input);assert.equal(input.checked,false);assert(!root.querySelector('a'));
-await root.querySelector('.primary').onclick();await tick();
+// The notice is the authors' Markdown: bold, kept line breaks and a list, never HTML from the text.
+const notice=root.querySelector('.consent-notice');assert.equal(notice.querySelector('strong').textContent,'注意事項');
+assert(notice.querySelector('p br'));assert.equal(notice.querySelectorAll('li').length,2);assert(!notice.querySelector('img'));
+assert.equal(input.closest('label').textContent,'上記内容に同意する');
+assert(notice.compareDocumentPosition(input)&window.Node.DOCUMENT_POSITION_FOLLOWING,'the agreement sits below the notice');
+// Starting needs the agreement.
+const start=root.querySelector('.primary');assert.equal(start.textContent,'同意してはじめる');assert(start.disabled);
+await start.onclick();await tick();
 assert(!calls.some(c=>c.route==='/api/telemetry'&&c.body),'unchecked consent never enables collection');
+assert(!calls.some(c=>c.route==='/api/onboarding/consent'&&c.body),'unchecked consent never starts');
+input.checked=true;input.dispatchEvent(new window.Event('change'));assert(!start.disabled);
+input.checked=false;input.dispatchEvent(new window.Event('change'));assert(start.disabled);
 privacy='https://example.com/privacy';calls.length=0;input=await welcome();
 assert.equal(input.checked,false);input.checked=true;
 const policy=root.querySelector('a');assert.equal(policy.href,privacy);assert.equal(policy.target,'_blank');assert.equal(policy.rel,'noopener noreferrer');
@@ -48,4 +58,4 @@ await flow.start();await flow.go('role-vision');await flow.go('life');await flow
 assert.deepEqual(calls.filter(c=>c.route==='/api/telemetry/step').map(c=>c.body),[{step:'role-vision',first:false},{step:'life',first:false}]);
 failStep=true;await flow.go('life');await tick();assert(root.textContent.includes('next'),'a failed step request never blocks navigation');
 assert(ONBOARDING_STEPS.includes('look-cover-import')&&ONBOARDING_STEPS.includes('voice_input'));
-console.log('PASS R6 DOM: unchecked opt-in, label version, policy links, autosave, disabled switch, safe sent text, once-per-flow steps');
+console.log('PASS R6 DOM: Markdown notice, required agreement below it, label version, policy links, autosave, disabled switch, safe sent text, once-per-flow steps');
