@@ -58,4 +58,13 @@ await flow.start();await flow.go('role-vision');await flow.go('life');await flow
 assert.deepEqual(calls.filter(c=>c.route==='/api/telemetry/step').map(c=>c.body),[{step:'role-vision',first:false},{step:'life',first:false}]);
 failStep=true;await flow.go('life');await tick();assert(root.textContent.includes('next'),'a failed step request never blocks navigation');
 assert(ONBOARDING_STEPS.includes('look-cover-import')&&ONBOARDING_STEPS.includes('voice_input'));
+// Explanations: ---, ___ and *** are horizontal rules; a list item starting with "- " is not.
+const {renderExplanation}=await import('../cbs/web/static/onboarding.js');
+const page=document.createElement('div');renderExplanation(page,'上\n\n---\n中\n___\n- 項目\n***\n下');
+assert.equal(page.querySelectorAll('hr').length,3);assert.equal(page.querySelectorAll('li').length,1);assert.equal(page.querySelectorAll('p').length,3);
+// One blank line separates paragraphs; two or more add a wider gap, never at the start.
+const gaps=document.createElement('div');renderExplanation(gaps,'\n\n\n一\n\n二\n\n\n三\n\n\n\n- 四');
+assert.deepEqual([...gaps.children].map(e=>e.className||e.tagName),['P','P','explanation-gap','P','explanation-gap','UL']);
+const headed=document.createElement('div');renderExplanation(headed,'# 見出し\n\n\n本文');
+assert.deepEqual([...headed.children].map(e=>e.tagName),['H2','P'],'no extra gap right under the heading');
 console.log('PASS R6 DOM: Markdown notice, required agreement below it, label version, policy links, autosave, disabled switch, safe sent text, once-per-flow steps');

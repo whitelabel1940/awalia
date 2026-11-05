@@ -1,4 +1,4 @@
-import {notice} from './onboarding.js';
+import {notice,renderExplanation} from './onboarding.js';
 import {api,node,action,confirmDialog,field,select} from './ui.js';
 
 export function aboutImport(parent,path='/api/import'){
@@ -64,6 +64,9 @@ export async function openImport(parent,options={}){
   const panel=node('section',undefined,'card set');parent.append(panel);
   panel.tabIndex=-1;
   panel.append(node('h3','ほかの場所の会話を足す'),node('p',importExplanation));
+  // How to export, from author copy (onboarding/import_help.md); the panel works without it.
+  const help=node('div',undefined,'import-help');panel.append(help);
+  api('/api/onboarding/import_help').then(copy=>{if(copy?.text)renderExplanation(help,copy.text);else help.remove();}).catch(()=>help.remove());
   const file=node('input');file.type='file';file.accept='.zip,.json,.md,.markdown';file.setAttribute('aria-label','会話のエクスポートしたファイル');panel.append(file);
   const list=node('div',undefined,'set'),paste=node('div',undefined,'set'),quote=node('div',undefined,'set'),progress=node('div',undefined,'set'),past=node('div',undefined,'set');panel.append(list,paste,quote,progress,past);
   let setting;

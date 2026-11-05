@@ -28,20 +28,57 @@ export function renderExplanation(parent,text,name=''){
       for(const [i,part]of row.split('**').entries())element.append(node(i%2?'strong':'span',part));
     }
   }
-  let paragraph=[],list;
+  let paragraph=[],list,blanks=0;
   const flush=()=>{if(paragraph.length){const p=node('p');inline(p,paragraph.join('\n'));parent.append(p);paragraph=[];}};
   for(const line of lines){
+    if(!line.trim()){flush();list=null;blanks++;continue;}
+    // Two or more blank lines make a wider gap than a paragraph break: a pause between topics.
+    // Not directly under the heading, which has its own space.
+    if(blanks>=2&&parent.lastElementChild&&parent.lastElementChild.tagName!=='H2')parent.append(node('div',undefined,'explanation-gap'));
+    blanks=0;
+    // A line of three or more -, _ or * is a horizontal rule, as in Markdown.
+    if(/^\s*([-_*])(\s*\1){2,}\s*$/.test(line)){flush();list=null;parent.append(node('hr',undefined,'explanation-rule'));continue;}
     if(line.startsWith('- ')){flush();if(!list){list=node('ul');parent.append(list);}const li=node('li');inline(li,line.slice(2));list.append(li);}
-    else {list=null;if(!line.trim())flush();else paragraph.push(line);}
+    else {list=null;paragraph.push(line);}
   }
   flush();
 }
 export async function explanation(parent,id,name=''){
   let copy;try{copy=await api(`/api/onboarding/${id}`);}catch{copy={text:'# はじめに'};}
+  // Whole explanation pages get roomier paragraphs than small notices that reuse the renderer.
+  parent.classList.add('explanation-page');
   renderExplanation(parent,copy.text,name);if(id==='done')parent.querySelector('p:not(#progress)')?.classList.add('done-message');return copy;
 }
+// Read the displayed location at the press, including headings updated after a failed check.
+export function setupHelper(parent,{describe=true,label='AI に手伝ってもらう',body=parent,header=false}={}){
+  const box=node('div',undefined,'setup-helper');parent.append(box);
+  if(describe)box.append(node('p','ふだん使っている AI（ChatGPT や Claude など）に貼ると、画面に合わせて設定を案内してもらえます。API キーは AI に教えないでください。'));
+  let fallback,timer;
+  const status=node('p',undefined,'status setup-helper-status');status.setAttribute('role','status');status.hidden=true;
+  const update=(text,error=false)=>{status.textContent=text;status.classList.toggle('error',error);status.hidden=!text;};
+  const button=action(box,label,async()=>{
+    clearTimeout(timer);fallback?.remove();update('手引きを用意しています…');
+    const caption=body.parentElement.querySelector(':scope > .chapter-caption'),chapter=caption?.querySelector('strong')?.textContent||'',count=caption?.querySelector('.chapter-count')?.textContent,heading=(body.querySelector('h2')||body.querySelector('legend'))?.textContent;
+    const location=`いま「${chapter}」${count?`の ${count} ページ`:''}${heading?`${count?'、':'の'}見出し「${heading}」`:''}の画面にいます。`;
+    try{
+      const guide=await api('/api/onboarding/setup-helper'),text=`【Awalia の初期設定について相談です】\n${location}\n\n${guide.text.replace(/^<!-- awalia-setup-helper [^\r\n]*(?:\r?\n|$)/,'')}`;
+      try{
+        await navigator.clipboard.writeText(text);
+        update('コピーしました。ChatGPT や Claude など、普段使っている AI に貼って質問してみてください。');
+        timer=setTimeout(()=>update(''),6000);
+      }catch{
+        fallback=node('div',undefined,'setup-helper-fallback');const field=node('label','設定の手引き','f'),input=node('textarea');input.value=text;input.readOnly=true;input.rows=10;field.append(input);fallback.append(field);box.append(fallback);
+        action(fallback,'閉じる',()=>{fallback.remove();update('');}).classList.add('quiet');
+        update('全部選んでコピーしてください。');
+      }
+    }catch{update('手引きを用意できませんでした。もう一度試してください。',true);}
+  });
+  // In the chapter line it is an outlined accent chip so it stays findable; elsewhere the usual outlined button.
+  if(header){button.classList.add('setup-help-chip');button.prepend(icon('help'));}
+  box.append(status);
+}
 // Screens own their draft values; navigation never reconstructs that state.
-export function sequence(parent,screens,{telemetryFirst=null,showCount=true,chapter='AI',visibleChapters=chapters,progressFor,onDone=()=>{},onWelcome}={}){
+export function sequence(parent,screens,{telemetryFirst=null,showCount=true,setupHelp=true,chapter='AI',visibleChapters=chapters,progressFor,onDone=()=>{},onWelcome}={}){
   let index=0,revision=0;const history=[];
   function backTo(id){const target=screens.findIndex(s=>s.id===id),at=history.lastIndexOf(target);if(at>=0)history.splice(at);return show(target,{remember:false,top:true});}
   async function show(next,{remember=true,top=false}={}){
@@ -53,9 +90,10 @@ export function sequence(parent,screens,{telemetryFirst=null,showCount=true,chap
     const progress=node('nav',undefined,'chapter-progress');progress.setAttribute('aria-label','準備の進み具合');
     const currentChapter=screen.chapter||chapter,chapterIndex=visibleChapters.indexOf(currentChapter);
     for(const [i,name]of visibleChapters.entries()){const segment=node('span',undefined,i===chapterIndex?'on':i<chapterIndex?'done':'');segment.setAttribute('aria-label',name);if(i===chapterIndex)segment.setAttribute('aria-current','step');progress.append(segment);}
-    const count=progressFor?.(screen)||{current:index+1,total:screens.length},caption=node('div',undefined,'chapter-caption');caption.append(node('strong',count.label||currentChapter));if(showCount)caption.append(node('span',`${Math.max(1,count.current)} / ${Math.max(1,count.total)}`));
+    const count=progressFor?.(screen)||{current:index+1,total:screens.length},caption=node('div',undefined,'chapter-caption');caption.append(node('strong',count.label||currentChapter));if(showCount)caption.append(node('span',`${Math.max(1,count.current)} / ${Math.max(1,count.total)}`,'chapter-count'));
     if(screen.id!=='welcome')parent.append(progress,caption);
     const body=node('section',undefined,['welcome','done'].includes(screen.id)?'onboarding-unframed':'card'),buttons=node('div',undefined,'wizard-actions');parent.append(body,buttons);if(jobProgress)body.append(jobProgress);
+    if(setupHelp&&!['welcome','done'].includes(screen.id))setupHelper(caption,{describe:false,label:'AI に相談',body,header:true});
     let result=await screen.render(body);if(token!==revision)return;
     if(jobProgress)body.append(jobProgress);
     if(screen.backAction)action(buttons,'戻る',screen.backAction);

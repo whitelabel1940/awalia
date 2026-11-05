@@ -13,15 +13,20 @@ TITLES = dict(zip(
      '深いところ', 'これまでの人生', 'もう少しだけ', '迎える前に', '見た目', '声', '声で入力', '書き出し', '準備ができました']))
 
 
+# Author copy that belongs to a part of a screen rather than to a step of the flow.
+PARTS = {'import_help': '会話の書き出し方'}
+
+
 def explanation(screen, root=ROOT / 'onboarding'):
-    if screen not in TITLES:
+    if screen not in TITLES and screen not in PARTS:
         raise HTTPException(404, '説明が見つかりません。')
     try:
         # Numbered in the order the screens appear, so the folder reads like the flow.
-        raw = (root / f'{list(TITLES).index(screen):02d}_{screen}.md').read_bytes()
+        name = f'{list(TITLES).index(screen):02d}_{screen}.md' if screen in TITLES else f'{screen}.md'
+        raw = (root / name).read_bytes()
         text = raw.decode('utf-8-sig')
     except (OSError, UnicodeError):
-        raw, text = b'', '# ' + TITLES[screen]
+        raw, text = b'', '' if screen in PARTS else '# ' + TITLES[screen]
     return {'text': text, 'version': hashlib.sha256(raw).hexdigest()}
 
 

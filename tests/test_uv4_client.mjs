@@ -10,7 +10,7 @@ assert(document.querySelector('#subtitle'));
 const {sequence,choiceCards}=await import('../cbs/web/static/onboarding.js');
 const root=document.getElementById('screen');let selected='',back=0;
 const flow=sequence(root,[{id:'question',chapter:'くわしく',render:p=>choiceCards(p,'質問',[['a','短い答え'],['b','説明つき','説明']],selected,v=>selected=v),next:()=> 'look'},{id:'look',chapter:'見た目',explanation:true,backAction:()=>back++,render:p=>p.append('説明'),skip:()=> 'done'},{id:'done',chapter:'バックアップ',label:'ユキと話しはじめる',render:()=>{}}],{progressFor:s=>s.id==='question'?{label:'今のこと',current:2,total:5}:{current:1,total:1}});
-await flow.start();assert.equal(root.querySelector('.chapter-caption').textContent,'今のこと2 / 5');assert.equal(root.querySelectorAll('.chapter-progress>.done').length,2);assert.equal(root.querySelectorAll('.chapter-progress>.on').length,1);assert.equal(root.querySelector('.choice-label').tagName,'SPAN');
+await flow.start();assert.equal(root.querySelector('.chapter-caption').textContent,'今のこと2 / 5AI に相談');assert.equal(root.querySelectorAll('.chapter-progress>.done').length,2);assert.equal(root.querySelectorAll('.chapter-progress>.on').length,1);assert.equal(root.querySelector('.choice-label').tagName,'SPAN');
 const input=root.querySelector('input');input.checked=true;input.onchange();assert.equal(selected,'a');
 await root.querySelector('.primary').onclick();assert.deepEqual([...root.querySelectorAll('.wizard-actions button')].map(b=>b.textContent),['戻る','飛ばす','次へ']);await root.querySelector('.wizard-actions button').onclick();assert.equal(back,1);
 await root.querySelector('.primary').onclick();assert.equal(root.querySelector('.primary').textContent,'ユキと話しはじめる');assert.equal(root.querySelector('.done-actions').lastElementChild.textContent,'戻る');

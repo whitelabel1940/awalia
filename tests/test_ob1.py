@@ -31,6 +31,10 @@ def test_consent_saved_once_server_timestamp_and_version(pipeline, tmp_path):
     assert saved['onboarding']['consent'] == value['consent']
     assert not pipeline.client.calls
     assert client.get('/api/onboarding/unknown').status_code == 404
+    # Copy for part of a screen (the import panel) is served the same way, without a heading.
+    help_copy = client.get('/api/onboarding/import_help').json()
+    assert 'ChatGPT' in help_copy['text'] and help_copy['version']
+    assert explanation('import_help', tmp_path) == {'text': '', 'version': hashlib.sha256(b'').hexdigest()}
 
 
 def test_trial_does_not_inherit_consent(tmp_path):

@@ -2,32 +2,13 @@ import {telemetryConsent} from './telemetry.js';
 import {summaryRow,returnToSettings,embeddingIdentity,reindexAI} from './settings-entry.js';
 import {openRouterLogin} from './openrouter-login.js';
 import {api,node,field,shell,action,confirmDialog} from './ui.js';
-import {sequence,explanation,chapters,choiceCards,onboardingChrome,notice,partnerRoute} from './onboarding.js';
+import {sequence,explanation,chapters,choiceCards,onboardingChrome,notice,partnerRoute,setupHelper} from './onboarding.js';
 import {modelRoleFields} from './model-role.js';
 import {embeddingDownload} from './embedding-download.js';
 
 export const roleNames={actor:'会話',judge:'判断',steward:'記憶の整理',embedding:'記憶の検索',research:'調べもの',vision:'画像の読み取り'};
 export function modelLabel(model,cfg,role='actor'){if(!model)return '使わない';const choices=[...Object.values(cfg.onboarding.actor_choices).flat(),...(cfg.model_candidates?.actor||cfg.simple.actor_candidates||[])];const match=choices.find(c=>c.model===model);if(role==='actor'&&match)return match.label;const [service,...parts]=model.split('/');return `${({openrouter:'OpenRouter',openai:'OpenAI',gemini:'Gemini',anthropic:'Claude',local:'ローカル'})[service]||service} の ${parts.at(-1)}`;}
 export function requiredProviders(models,includeSTT=false){return [...new Set(Object.entries(models).filter(([r,m])=>(includeSTT||r!=='stt')&&m).map(([,m])=>m.split('/')[0]))].filter(p=>p!=='local');}
-function setupHelper(parent){
-  const box=node('div');parent.append(box);
-  box.append(node('p','ふだん使っている AI（ChatGPT や Claude など）に貼ると、画面に合わせて設定を案内してもらえます。API キーは AI に教えないでください。'));
-  let status,fallback;
-  action(box,'AI に手伝ってもらう',async()=>{
-    status.update('手引きを用意しています…','waiting');fallback?.remove();
-    try{
-      const {text}=await api('/api/onboarding/setup-helper');
-      try{
-        await navigator.clipboard.writeText(text);
-        status.update('コピーしました。使っている AI の入力欄に貼り付けて、送ってください。');
-      }catch{
-        fallback=node('label','設定の手引き','f');const input=node('textarea');input.value=text;input.readOnly=true;input.rows=10;fallback.append(input);box.append(fallback);
-        status.update('全部選んでコピーしてください。','waiting');
-      }
-    }catch{status.update('手引きを用意できませんでした。もう一度試してください。','error');}
-  });
-  status=notice(box);
-}
 export async function onboardingAI(parent,{partnerOnly=false,first=!partnerOnly,onWelcome,repair=false,settingsEntry=false}={}){
   let cfg=await api('/api/settings'),state=await api('/api/onboarding/state');
   const draft={method:'oauth',combination:'mixed',kind:'router',zdr:cfg.llm.zdr_only,models:{...cfg.models},simple:{...cfg.simple},keys:{},urls:{}};
@@ -68,7 +49,7 @@ export async function onboardingAI(parent,{partnerOnly=false,first=!partnerOnly,
   const screens=[
     // The first screen carries the consent too, so starting is one press.
     {id:'welcome',label:showConsent?'同意してはじめる':'はじめる',pending:showConsent,enter:({setReady})=>{consentReady=setReady;setReady(!showConsent||consent.agreed());},render:async body=>{body.classList.add('welcome');const logo=node('div',undefined,'welcome-logo');for(const theme of ['light','dark']){const image=node('img',undefined,`brand-${theme}`);image.src=`/static/brand/vertical-${theme}.svg`;image.alt=theme==='light'?'Awalia ふたりのあわいに、絆を育む。':'';if(theme==='dark')image.setAttribute('aria-hidden','true');logo.append(image);}body.append(logo);if(showConsent){const box=node('div',undefined,'welcome-consent');body.append(box);const copy=await explanation(box,'consent');consent=await telemetryConsent(box,{onChange:ready=>consentReady(ready)});return copy;}},next:async copy=>{if(showConsent&&!state.consent){if(!consent.agreed())return false;await consent.save();state=await api('/api/onboarding/consent',{version:copy.version});}return 'ai';}},
-    {...copyScreen('ai'),render:async body=>{const copy=await explanation(body,'ai');if(!settingsEntry)setupHelper(body);return copy;},next:()=>cfg.ai_ready&&cfg.connection_verified?'summary':'method'},
+    {...copyScreen('ai'),render:async body=>{const copy=await explanation(body,'ai');if(!settingsEntry)setupHelper(body,{describe:false});return copy;},next:()=>cfg.ai_ready&&cfg.connection_verified?'summary':'method'},
     {id:'method',render:body=>choice(body,'設定のしかた',[['oauth','かんたん（OpenRouter と連携）'],['key','API キーで設定']],'method'),next:()=>draft.method==='oauth'?'oauth':'combination'},
     {id:'oauth',back:'method',pending:true,render:body=>{
       body.append(node('h2','OpenRouter と連携する'),node('p','ブラウザで連携したら、この画面で次へ進めます。'));
@@ -143,7 +124,7 @@ export async function onboardingAI(parent,{partnerOnly=false,first=!partnerOnly,
   if(document.getElementById('heading'))document.getElementById('heading').textContent='はじめに';
   if(document.getElementById('subtitle'))document.getElementById('subtitle').textContent='ひとつずつ、準備していきましょう。';
   return new Promise((resolve,reject)=>{
-    flow=sequence(parent,partnerOnly?[screens.at(-1)]:screens,{telemetryFirst:settingsEntry?null:first,showCount:!settingsEntry,progressFor,visibleChapters:settingsEntry?['AI']:partnerOnly?chapters.filter(c=>!['AI','声で入力','バックアップ'].includes(c)):chapters,onDone:resolve,onWelcome});
+    flow=sequence(parent,partnerOnly?[screens.at(-1)]:screens,{setupHelp:!settingsEntry,telemetryFirst:settingsEntry?null:first,showCount:!settingsEntry,progressFor,visibleChapters:settingsEntry?['AI']:partnerOnly?chapters.filter(c=>!['AI','声で入力','バックアップ'].includes(c)):chapters,onDone:resolve,onWelcome});
     flow.start(settingsEntry?'entry-summary':repair?'method':partnerOnly?'partner':undefined).catch(reject);
   });
 }

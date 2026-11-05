@@ -91,7 +91,7 @@ export async function onboardingFinishing(parent,{name,secondPartner=false,onBac
     const selected=screens.filter(s=>s.id.startsWith(settingsEntry==='voice'?'voice-':'input-'));
     for(const screen of selected){screen.back='entry-summary';if(['voice-description','voice-reference','voice-style','voice-confirm','input-device','input-options','input-confirm'].includes(screen.id))screen.next=()=> 'entry-summary';}
     if(settingsEntry==='input')selected.find(s=>s.id==='input-model').next=()=>sttModel.startsWith('local/')?'input-download':'entry-summary';
-    flow=sequence(parent,[summary,...selected],{showCount:false,visibleChapters:[summary.chapter],onDone:()=>{}});await flow.start();return flow;
+    flow=sequence(parent,[summary,...selected],{setupHelp:false,showCount:false,visibleChapters:[summary.chapter],onDone:()=>{}});await flow.start();return flow;
   }
   const filtered=secondPartner?screens.filter(s=>!['声で入力','バックアップ'].includes(s.chapter)||s.id==='done'):screens;
   flow=sequence(parent,filtered,{telemetryFirst:!secondPartner,visibleChapters:secondPartner?chapters.filter(c=>!['AI','声で入力','バックアップ'].includes(c)):chapters,progressFor:screen=>{

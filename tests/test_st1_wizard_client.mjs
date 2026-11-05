@@ -23,6 +23,7 @@ globalThis.fetch=async(url,options={})=>{const path=new URL(url,location.href).p
 
 const root=document.getElementById('screen');reset();await import('../cbs/web/static/wizard.js');for(let i=0;i<30;i++)await new Promise(r=>setImmediate(r));
 assert.equal(document.getElementById('error').textContent,'');assert(root.querySelector('h2')?.textContent.startsWith('今の'),kind+' boots through wizard.js');assert.equal(root.querySelector('.chapter-caption span'),null);assert.equal(root.querySelectorAll('.chapter-progress span').length,1);
+assert(!root.querySelector('.setup-helper'),kind+' settings entry excludes help');
 if(kind==='input')assert(root.textContent.includes('自動（おすすめ）'));
 if(kind==='voice')assert(root.textContent.includes('自動（GPUならq8、CPUならq4）'));
 assert(!calls.some(c=>c.method==='PUT'));console.log('PASS ST1 wizard.js entry '+kind);process.exit(0);

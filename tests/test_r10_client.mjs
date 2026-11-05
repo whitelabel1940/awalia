@@ -29,13 +29,15 @@ async function click(label){const button=[...root.querySelectorAll('button')].fi
 async function next(){await root.querySelector('.wizard-actions .primary').onclick();await tick();}
 function choose(value){const input=root.querySelector(`input[value="${value}"]`);assert(input);input.checked=true;input.dispatchEvent(new window.Event('change'));}
 const helper=()=>[...root.querySelectorAll('button')].find(e=>e.textContent==='AI に手伝ってもらう');
-function fallback(){const input=root.querySelector('textarea');assert(input?.readOnly);assert.equal(input.value,guide);assert(!root.querySelector('script,img[src=x]'));assert(root.textContent.includes('全部選んでコピーしてください。'));}
+function expectedText(){const chapter=root.querySelector('.chapter-caption strong').textContent,count=root.querySelector('.chapter-count').textContent,heading=root.querySelector('section h2').textContent;return `【Awalia の初期設定について相談です】\nいま「${chapter}」の ${count} ページ、見出し「${heading}」の画面にいます。\n\n${guide.split('\n').slice(1).join('\n')}`;}
+function fallback(){const input=root.querySelector('textarea');assert(input?.readOnly);assert.equal(input.value,expectedText());assert(!root.querySelector('script,img[src=x]'));assert(root.textContent.includes('全部選んでコピーしてください。'));}
 
 reset();void onboardingAI(root);await tick();assert(!calls.includes('/api/onboarding/setup-helper'));await next();
-assert(helper());assert(root.textContent.includes(description));assert(root.textContent.indexOf('説明です。')<root.textContent.indexOf(description));assert(!calls.includes('/api/onboarding/setup-helper'));
+// On the AI page the author's copy explains the button, so the built-in line is not repeated.
+assert(helper());assert(!root.textContent.includes(description));assert(root.textContent.indexOf('説明です。')<root.textContent.indexOf('AI に手伝ってもらう'));assert(!calls.includes('/api/onboarding/setup-helper'));
 let copied;
 Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{copied=text;}},configurable:true});
-await click('AI に手伝ってもらう');assert.equal(copied,guide);assert([...root.querySelectorAll('[role=status]')].some(e=>e.textContent==='コピーしました。使っている AI の入力欄に貼り付けて、送ってください。'));assert(!root.querySelector('textarea'));
+await click('AI に手伝ってもらう');assert.equal(copied,expectedText());assert([...root.querySelectorAll('[role=status]')].some(e=>e.textContent==='コピーしました。ChatGPT や Claude など、普段使っている AI に貼って質問してみてください。'));assert(!root.querySelector('textarea'));
 Object.defineProperty(navigator,'clipboard',{value:undefined,configurable:true});await click('AI に手伝ってもらう');fallback();
 Object.defineProperty(navigator,'clipboard',{value:{writeText:async()=>{throw Error('denied');}},configurable:true});await click('AI に手伝ってもらう');fallback();assert.equal(root.querySelectorAll('textarea').length,1);
 helperFailure=true;await click('AI に手伝ってもらう');assert(root.textContent.includes('手引きを用意できませんでした。'));assert(!root.querySelector('textarea'));helperFailure=false;
@@ -44,5 +46,5 @@ helperFailure=true;await click('AI に手伝ってもらう');assert(root.textCo
 async function check(failed){reset();fail=failed;void onboardingAI(root,{repair:true});await tick();choose('key');await next();choose('openai');await next();assert(!helper());await next();}
 await check(true);assert.equal(root.querySelector('h2').textContent,'つながりませんでした');assert(helper());assert(root.textContent.includes(description));assert(!calls.includes('/api/onboarding/setup-helper'));await click('AI に手伝ってもらう');fallback();
 await check(false);assert(root.textContent.includes('接続の確認が完了しました。'));assert(!helper());
-reset();fail=true;void onboardingAI(root,{settingsEntry:true});await tick();assert(!helper());await next();assert(root.textContent.includes('接続できません'));assert(!helper());assert(!calls.includes('/api/onboarding/setup-helper'));
+reset();fail=true;void onboardingAI(root,{settingsEntry:true});await tick();assert(!helper());assert(!root.querySelector('.setup-helper'));await next();assert(root.textContent.includes('接続できません'));assert(!helper());assert(!root.querySelector('.setup-helper'));assert(!calls.includes('/api/onboarding/setup-helper'));
 console.log('PASS R10 DOM: AI and failed check only, lazy fetch, clipboard success, missing/denied clipboard with literal readonly text, API failure, settings entry exclusion');
