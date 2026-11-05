@@ -32,7 +32,9 @@ const {onboardingPartner}=await import('../cbs/web/static/onboarding-partner.js'
 const data={basics:{name:'ユキ'},world:{preset:'現代日本'},persona:{ai_question:'immersive',open_style:'hinted'},now:{likes:[],life:{}},answers:{},life:{},adaptive_questions:[]};
 const flow=await onboardingPartner(root,{data,setRender(){},questions:id=>id==='scenes'?[{id:'R1',group:'answers'}]:[],question:p=>p.append(node('p','最初の質問')),renderConfirmation:()=>new Map()});
 const next=()=>root.querySelector('.wizard-actions .primary').onclick();
-await flow.go('scenes');assert.equal(root.querySelector('h2').textContent,'場面の質問');assert(root.textContent.includes('ユキがいろいろな場面でどう反応するか'));assert(!root.textContent.includes('{name}'));
+await flow.go('scenes');assert.equal(root.querySelector('h2').textContent,'場面の質問');// The author's copy changes; check that its first {name} line shows the partner's name instead.
+const named=readFileSync('onboarding/05_scenes.md','utf8').split(/\r?\n/).find(l=>l.includes('{name}')).replaceAll('{name}','ユキ').replace(/^- /,'');
+assert(root.textContent.includes(named));assert(!root.textContent.includes('{name}'));
 assert(root.textContent.includes('近いと感じる答えを選んでください。正解はありません。'));assert(root.textContent.includes('話していくうちにユキらしさが見えてきます。'));
 await next();assert.equal(root.querySelector('h2').textContent,'決めなかった場面');assert.equal(root.querySelectorAll('input').length,2);assert(root.querySelector('input[value=hinted]').checked);assert(!root.querySelector('legend'));assert(!root.querySelector('.badge'));assert(root.textContent.includes('このあとの質問で「決めないでおく」にしたところで、ユキがどう振る舞うかを選びます。あとから設定で変えられます。'));
 const free=root.querySelector('input[value=free]');free.checked=true;free.onchange();assert.equal(data.persona.open_style,'free');await next();assert(root.textContent.includes('最初の質問'));
