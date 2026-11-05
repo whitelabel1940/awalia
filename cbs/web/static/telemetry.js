@@ -7,8 +7,9 @@ function description(parent,state){
 }
 
 export async function telemetryConsent(parent){
-  // A box that cannot be ticked would only confuse the first screen.
-  const state=await api('/api/telemetry').catch(()=>null);if(!state?.available)return async()=>{};
+  // Shown whenever this build has a destination, so お試し and development show the real screen;
+  // the server still refuses to turn sending on where it is not allowed.
+  const state=await api('/api/telemetry').catch(()=>null);if(!state?.configured)return async()=>{};
   const row=node('label',undefined,'choice'),input=node('input'),copy=node('span');
   input.type='checkbox';input.checked=false;
   description(copy,state);row.append(input,copy);parent.append(row);
