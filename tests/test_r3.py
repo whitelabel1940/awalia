@@ -106,4 +106,7 @@ def test_seed():
     from cbs.news import current_version
     seed = Feed.model_validate_json((ROOT / 'news/news.json').read_text())
     assert seed.latest.version == current_version()
-    assert seed.notices == [] and seed.feedback_url == ''
+    assert seed.notices == []
+    # The real feedback form; the app fills in its version and OS.
+    assert seed.feedback_url.startswith('https://docs.google.com/forms/')
+    assert '{version}' in seed.feedback_url and '{os}' in seed.feedback_url
