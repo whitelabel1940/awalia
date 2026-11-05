@@ -350,7 +350,12 @@ def rebuild(pipeline, *, force=False, batch_id=None):
             return {'skipped': 'already maintained'}
     with store.connect() as db:
         feedback = [dict(r) for r in db.execute("SELECT understanding_id,action,detail,created_at FROM knowing_actions WHERE character_id=? AND action='disagree' ORDER BY id DESC LIMIT 30",(cid,))]
-    context = {'observations': observations, 'previous_understandings': store.list_understandings(cid,cfg), 'user_corrections':feedback, 'current_datetime':clock.iso()}
+    # Only observation IDs may be cited as support/counter. Turn and job IDs (and the evidence
+    # copies inside each understanding) made the model cite numbers that are not observations.
+    seen = [{k: o[k] for k in ('id','kind','summary','response','observed_at')} for o in observations]
+    previous = [{k: u[k] for k in ('id','kind','text','condition','support','counter','stage','status','last_observed_at','expires_at') if k in u}
+                for u in store.list_understandings(cid,cfg)]
+    context = {'observations': seen, 'previous_understandings': previous, 'user_corrections':feedback, 'current_datetime':clock.iso()}
     trace = {}
     status = 'failed'
     try:
