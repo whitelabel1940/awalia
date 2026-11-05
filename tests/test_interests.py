@@ -201,9 +201,9 @@ def test_summary_once_daily_failure_and_stale_summary_not_foreground(pipeline):
     assert pipeline.store.now_summary('fixture')
     express(pipeline, '2026-09-01 21:30', 'reinforce', new['id'])
     assert pipeline.store.now_summary('fixture')
-    # A changed interest may contradict it: hidden until the next daily summary.
+    # An interest first recorded after the summary cannot be in it, so changing it keeps the summary.
     express(pipeline, '2026-09-01 22:00', 'change', new['id'], detail='お香の香木の香りに惹かれている')
-    assert pipeline.store.now_summary('fixture') is None
+    assert pipeline.store.now_summary('fixture')
     with clock.at('2026-09-02 20:00'):
         pipeline.client.now_responses = ['bad JSON']
         daily_maintenance(pipeline)
@@ -212,6 +212,9 @@ def test_summary_once_daily_failure_and_stale_summary_not_foreground(pipeline):
     with clock.at('2026-09-03 20:00'):
         daily_maintenance(pipeline)
         assert pipeline.store.now_summary('fixture')
+    # Now the summary may describe it, so a change may contradict it: hidden until the next daily summary.
+    express(pipeline, '2026-09-03 21:00', 'change', new['id'], detail='白檀の香りに惹かれている')
+    assert pipeline.store.now_summary('fixture') is None
 
 
 def test_m5_already_maintained_day_still_initializes_m6_once(pipeline):

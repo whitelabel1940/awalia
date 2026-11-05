@@ -111,9 +111,12 @@ class InterestStore:
         with self.connect() as db:
             row = db.execute('SELECT * FROM now_summaries WHERE character_id=?', (character_id,)).fetchone()
             # Hide it only when an interest it may describe has since changed, weakened or faded.
-            # New interests and more evidence (almost every activity) only add to it.
+            # New interests and more evidence (almost every activity) only add to it, and an interest
+            # first recorded after the summary cannot be in it, so its later changes do not hide it.
             stale = row and db.execute("SELECT 1 FROM interest_changes c JOIN interests i ON i.id=c.interest_id "
-                "WHERE i.character_id=? AND c.id>? AND c.operation IN ('change','weaken','fade') LIMIT 1", (character_id, row['source_change'])).fetchone()
+                "WHERE i.character_id=? AND c.id>? AND c.operation IN ('change','weaken','fade') "
+                "AND NOT EXISTS (SELECT 1 FROM interest_changes born WHERE born.interest_id=i.id AND born.operation='new' AND born.id>?) LIMIT 1",
+                (character_id, row['source_change'], row['source_change'])).fetchone()
             return dict(row) if row and not stale else None
 
     def apply_interests(self, db, character_id, proposals, vectors, turns, episode_ids, conversation_id, warnings, activity_id=None):
