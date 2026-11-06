@@ -115,7 +115,8 @@ def test_import_help_part(pipeline, tmp_path):
     with TestClient(app) as web:
         response = web.get('/api/onboarding/look_import_help')
         assert response.status_code == 200
-        assert response.json()['text'].startswith('**取り込む画像の形**\n')
+        # Line endings depend on the checkout (CRLF on Windows CI), so compare lines.
+        assert response.json()['text'].splitlines()[0] == '**取り込む画像の形**'
         assert '40MB 以下' in response.json()['text']
     assert explanation('look_import_help', tmp_path)['text'] == ''
     assert {f['path'] for f in field_catalog()['fields'] if f.get('describe') is False} == {
