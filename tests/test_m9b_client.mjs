@@ -65,6 +65,7 @@ const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:
 globalThis.fetch=async(path,options={})=>{
   const route=path.split('?')[0],body=options.body&&typeof options.body==='string'?JSON.parse(options.body):null;calls.push({route,path,method:options.method||'GET',body});
   if(route==='/api/onboarding/state')return json({consent:{at:'test',version:'test'}});
+  if(route==='/api/onboarding/look_import_help')return json({text:'**取り込む画像の形**'});
   if(route.startsWith('/api/onboarding/'))return json({text:'# パートナーについて'});
   if(route.startsWith('/api/bootstrap/import/'))return json([]);
   if(route==='/api/partner/requests')return json({version:0,fields:{first_person:'私',second_person:'あなた',register:'自然に',length:'短く'},lines:[],limits:{max_lines:40,max_line_chars:300,max_field_chars:1000},can_undo:false});

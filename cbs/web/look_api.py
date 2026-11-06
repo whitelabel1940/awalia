@@ -7,7 +7,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from cbs.look import (character_path, look_meta, save_image, image_type, field_catalog,
                       normalize_look, validate_look, image_prompt, draft_look, draft_sources,
-                      suggest_expressions)
+                      suggest_expressions, describe_look, face_path, field_value, set_field)
 from cbs.expression import EXPRESSIONS
 from cbs.web.settings_api import atomic_write
 from cbs.bootstrap_schema import WorldInput
@@ -69,6 +69,28 @@ def install_look(app, selected, get_pipeline, characters_root):
     def expressions(pipeline=Depends(selected)):
         return suggestions(pipeline, suggest_expressions)
 
+    @app.post('/api/look/describe')
+    def describe(body: LookMeta | None = None, pipeline=Depends(selected)):
+        from cbs.llm import LLMError, FakeLLMClient
+        from cbs.photos import vision_status
+        if not pipeline.config.models.vision:
+            raise HTTPException(409, '写真の読み取りを使う設定にすると使えます')
+        status = vision_status(pipeline.config, require_key=not isinstance(pipeline.client, FakeLLMClient))
+        if not status['enabled']:
+            raise HTTPException(409, status['reason'])
+        current = look_meta(characters_root, pipeline.config.character.id, world=initial_world(pipeline))
+        if body:
+            # Protect saved values as well as unsaved values in the editor.
+            for spec in field_catalog()['fields']:
+                value = field_value(body.model_dump(), spec['path'])
+                if not field_value(current, spec['path']) and value:
+                    set_field(current, spec['path'], value)
+        try:
+            return describe_look(pipeline.config, pipeline.client,
+                                 character_path(characters_root, pipeline.config.character.id) / 'look', current)
+        except (LLMError, OSError, ValueError):
+            raise HTTPException(502, '下書きを作れませんでした。もう一度お試しください。') from None
+
     def suggestions(pipeline, generate):
         from cbs.llm import LLMError
         try:
@@ -112,8 +134,8 @@ def install_look(app, selected, get_pipeline, characters_root):
         data = bytearray()
         async for chunk in request.stream():
             data.extend(chunk)
-            if len(data) > 5 * 1024 * 1024:
-                raise HTTPException(413, "画像は5MB以下にしてください。")
+            if len(data) > 40 * 1024 * 1024:
+                raise HTTPException(413, "画像は40MB以下にしてください。")
         try:
             save_image(character_path(characters_root, pipeline.config.character.id) / "look" / (expression + ".png"), bytes(data), cover=expression == 'cover')
         except ValueError as error:
@@ -133,8 +155,8 @@ def install_look(app, selected, get_pipeline, characters_root):
         path = character_path(characters_root, cid) / "look"
         selected_path = path / (expression + ".png")
         if not selected_path.is_file() and expression != 'cover':
-            selected_path = path / "neutral.png"
-        if not selected_path.is_file():
+            selected_path = face_path(path, expression)
+        if selected_path is None or not selected_path.is_file():
             raise HTTPException(404, "画像がありません。")
         data = selected_path.read_bytes()
         return Response(data, media_type=image_type(data))

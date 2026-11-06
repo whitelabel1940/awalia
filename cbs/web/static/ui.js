@@ -116,7 +116,7 @@ export function card(parent, title) {
 }
 export function face(name, expression = 'neutral', expressions = [], cid = partnerId) {
   const e = node('span', [...name][0] || '○', 'face'); e.setAttribute('aria-hidden', 'true');
-  const slot = expressions.includes(expression) ? expression : expressions.includes('neutral') ? 'neutral' : null;
+  const slot = expressions.includes(expression) ? expression : expressions.includes('neutral') ? 'neutral' : ['neutral','smile','shy','surprised','sad','troubled','thinking','pout'].find(e=>expressions.includes(e));
   if (slot && cid) {
     const img = node('img'); img.alt = ''; img.src = `/looks/${encodeURIComponent(cid)}/${slot}?v=${Date.now()}`;
     img.onerror = () => { if (slot !== 'neutral' && !img.dataset.fallback) { img.dataset.fallback='1'; img.src=`/looks/${encodeURIComponent(cid)}/neutral`; } else img.remove(); };

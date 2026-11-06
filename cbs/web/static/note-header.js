@@ -10,7 +10,7 @@ export function partnerHeader(parent,note,look={}){
   const candidates=[];
   if(look.cover)candidates.push('cover');
   if(look.expressions?.includes(note.current_expression))candidates.push(note.current_expression);
-  if(look.expressions?.includes('neutral')&&!candidates.includes('neutral'))candidates.push('neutral');
+  if(look.expressions?.length&&!candidates.includes('neutral'))candidates.push('neutral'); // Image API supplies the first saved face if neutral is absent.
   function show(){
     const slot=candidates.shift();
     header.classList.toggle('has-cover',slot==='cover');

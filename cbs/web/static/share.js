@@ -15,7 +15,7 @@ export async function shareDialog({where,entry}){
   const look=await api('/api/look'),day=entry?.day||state.day,name=state.name;
   if(cid!==partnerId)return;
   const asset=slot=>`/looks/${encodeURIComponent(cid)}/${slot}?v=${Date.now()}`;
-  const faceUrl=cid&&look.expressions?.includes('neutral')?asset('neutral'):null;
+  const faceUrl=cid&&look.expressions?.length?asset('neutral'):null;
   const coverUrl=cid&&look.cover?asset('cover'):null;
   const dialog=node('dialog',undefined,'share-dialog'),body=node('div',undefined,'set');
   dialog.setAttribute('aria-label',where==='start'?'話しはじめのシェア':'日記のシェア');

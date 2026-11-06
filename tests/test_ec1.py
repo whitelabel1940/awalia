@@ -60,7 +60,7 @@ def test_cover_crud_wide_dimensions_no_expression_slot(pipeline, tmp_path):
         assert client.put('/api/look/cover', content=content, headers={'Content-Type': 'image/png'}).status_code == 422
     assert client.get('/looks/fixture/cover').content == saved.content
     assert client.put('/api/look/cover', content=b'bad', headers={'Content-Type': 'text/plain'}).status_code == 415
-    assert client.put('/api/look/cover', content=b'x'*(5*1024*1024+1), headers={'Content-Type': 'image/png'}).status_code == 413
+    assert client.put('/api/look/cover', content=b'x'*(40*1024*1024+1), headers={'Content-Type': 'image/png'}).status_code == 413
     assert client.put('/api/look/meta', json={'image': {'use': 'cover', 'scene': '窓辺'}}).status_code == 200
     assert client.get('/api/look').json()['image']['scene'] == '窓辺'
     assert client.put('/api/look/not-a-slot', content=png((20, 10)), headers={'Content-Type': 'image/png'}).status_code == 422

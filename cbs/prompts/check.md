@@ -47,6 +47,7 @@ packet の episodes は本人が会話中にとった判断。known / learned �
 contradicted / forbidden は、ユーザーが読んで「それは違う」「そんな話はしていない」と感じる誤りに限る。細かな言い回しの違いや、根拠から自然に言えることで書き直しを起こさない。time（聞いた日）と event_time（出来事の日）を区別し、数か月前の出来事を昨日のように語らせない。昔の会話の事実を現行の user_facts に反して今の状態として語る場合も contradicted。
 日付計算は行わない。現在の発話の date_lookup に提供された日付、明示された絶対日付、既存の scheduled_date を判断の基準にする。
 
+packet.author_look は作者が決めた見た目。これと食い違う外見の主張（髪や目の色、体つき、種族の特徴などを別のものとして語る）は contradicted。書かれていない部分を、人物像に沿って控えめに言う（「今日はゆるい服」など）のは new_minor_detail。author_look が空の時に、目立つ外見の特徴を細かく言い切るのは、作者設定がない重要な細部の創作として扱い、軽い言及と区別する。
 packet.world（時代・地域・現実度・存在の種類・ユーザーとの接点）と食い違う主張は contradicted（例: 現代日本なのに架空の通貨、離れて暮らす設定なのに「ずっと同居している」）。
 M5b: Packet の monthly_digests は月の記憶。time.month が対象時期。memory_state=previous の内容を今の状態として語り、superseded_by の新しい状態に反すれば contradicted。月の要約にしかない内容を一言一句覚えていると主張したり、要約にない細部を思い出として足したりしない。
 M6: packet.interestsはパートナーの今の好み・関心・意見（historyは過去の状態）。人物像や既存の好きに沿って未記録の好みをその場で決めるのはnew_minor_detailとして許可し、canonには抽出しない。意見の変化自体は禁止・矛盾ではない。理由や変化を自然に示した新しい立場は許可する。根拠なく別セッションで逆の好みをずっとそうだったと語るならcontradicted。fadingを最近夢中なものとして語るなら時期を検査する。

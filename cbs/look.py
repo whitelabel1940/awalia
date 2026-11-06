@@ -134,6 +134,60 @@ class LookExpressions(BaseModel):
     suggestions: list[DraftItem] = Field(default_factory=list, max_length=9)
 
 
+class DescribedField(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    path: str
+    value: str = Field(max_length=4000)
+
+
+class LookDescription(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    llm_role: ClassVar[str] = 'vision'
+    assignments: list[DescribedField] = Field(default_factory=list, max_length=40)
+
+
+def face_path(directory, expression='neutral'):
+    """The same ordered fallback for serving images and reading the partner's face."""
+    return next((directory / (slot + '.png') for slot in dict.fromkeys(
+        [expression, 'neutral', *EXPRESSIONS]) if (directory / (slot + '.png')).is_file()), None)
+
+
+def describe_look(config, client, directory, current):
+    from PIL import Image
+    fields = [f for f in field_catalog()['fields'] if f['path'].startswith('person.')
+              and not f['path'].startswith('person.expressions.') and f.get('describe', True)
+              and not field_value(current, f['path']).strip()]
+    empty = {'assignments': [], 'filled': 0,
+             'message': '画像から読み取れる見た目がありませんでした。手で入力できます。'}
+    face = face_path(directory)
+    if not face or not fields:
+        return empty
+    images = []
+    for path in [face, *([directory / 'cover.png'] if (directory / 'cover.png').is_file() else [])]:
+        # All provider adapters accept JPEG; rebuild pixels and discard metadata.
+        with Image.open(path) as source:
+            rgba = source.convert('RGBA')
+            image = Image.new('RGB', rgba.size, 'white')
+            image.paste(rgba, mask=rgba.getchannel('A'))
+            output = BytesIO()
+            image.save(output, format='JPEG', quality=90)
+            images.append(output.getvalue())
+    result = for_step(client, 'look', 'media').generate_images_json(
+        config.models.vision, read_prompt('look_describe'),
+        json.dumps({'fields': fields}, ensure_ascii=False), images, LookDescription)
+    allowed, seen, assignments = {f['path'] for f in fields}, set(), []
+    total = sum(len(field_value(current, f['path'])) for f in field_catalog()['fields'] if not f.get('type'))
+    for item in result.parsed.assignments:
+        value = client.sanitize_text(item.value).strip()
+        if item.path not in allowed or item.path in seen or not value or total + len(value) > 4000:
+            continue
+        assignments.append({'path': item.path, 'value': value})
+        seen.add(item.path)
+        total += len(value)
+    return {'assignments': assignments, 'filled': len(assignments),
+            'message': '下書きしました。内容を確かめて、自由に直せます。' if assignments else empty['message']}
+
+
 def draft_sources(character, model=None):
     return {**character.sources,
             'model': yaml.safe_dump((model or character.model).model_dump(mode='json'), allow_unicode=True),

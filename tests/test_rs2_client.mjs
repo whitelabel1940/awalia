@@ -87,6 +87,7 @@ if(wizard){
   const before=count('/api/proactive/idle');
   if(mode==='look'){
     holdDraft=true;const working=click('設定文と性格から下書きする');await settle();await fire(180000);assert.equal(count('/api/proactive/idle'),before,'look generation is busy');releaseDraft();await working;
+    for(let i=0;i<10;i++)await click('次へ'); // Shared look flow, through the cover import screen.
     // A dropped image lives in editor state even though the file input stays empty.
     const drop=document.querySelector('.look-cover .drop');await drop.ondrop({preventDefault(){},dataTransfer:{files:[{type:'image/png',size:100}]}});await settle();
   }else{
@@ -105,7 +106,7 @@ if(wizard){
   assert.equal(navigated,`/?character=sora&resident_turn=${nextTurn}#talk`);
   // Discard has no save side effect and the clean state also navigates directly.
   if(mode==='look'){
-    document.getElementById('screen').replaceChildren();const {editLook}=await import('../cbs/web/static/settings.js');await editLook(document.getElementById('screen'));await settle();
+    document.getElementById('screen').replaceChildren();const {editLook}=await import('../cbs/web/static/settings.js');const editor=await editLook(document.getElementById('screen'));await editor.go('look-hair');await settle();
     const e=document.querySelector('[data-look-path="person.hair.color"]');e.value='青';e.dispatchEvent(new window.Event('input',{bubbles:true}));await settle();
   }
   if(mode==='look'){navigated=undefined;await nativeClick();const saved=count('/api/look/meta');await click('捨てて移る');assert.equal(count('/api/look/meta'),saved);assert(navigated);}

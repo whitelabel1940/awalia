@@ -1,16 +1,16 @@
 import {modelLabel} from './onboarding-ai.js';
 import {summaryRow,returnToSettings} from './settings-entry.js';
-import {api,node,select,action,face} from './ui.js';
+import {api,node,field,select,action,face} from './ui.js';
 import {sequence,explanation,chapters,choiceCards,notice,onboardingChrome} from './onboarding.js';
-import {newLook,mountLook,saveLook,applyLookDraft,lookPayload} from './look-editor.js';
+import {newLook,mountLook,saveLook,applyLookDraft,lookPayload,lookSnapshot,lookFieldsEmpty,applyLookDescription} from './look-editor.js';
 import {voiceSettings,stopVoice} from './voice.js';
 import {embeddingDownload} from './embedding-download.js';
 import {defaultSTTModel,sttSettingsFields} from './stt.js';
 import {backupSettings} from './backup.js';
 
 // Every write uses saved-partner settings; the partner is already usable.
-export async function onboardingFinishing(parent,{name,secondPartner=false,onBack,settingsEntry}={}){
-  let flow,cfg,look,voice,voiceHost,backup,backupHost,sttModel,serviceModel,initialVoice;
+export async function onboardingFinishing(parent,{name,secondPartner=false,onBack,settingsEntry,lookOnly=false,lookState,describe=false,coverOnly=false,onLookDone}={}){
+  let flow,cfg,look=lookState,voice,voiceHost,backup,backupHost,sttModel,serviceModel,initialVoice;
   const settings=async()=>cfg??=await api('/api/settings');
   const saveInput=()=>api('/api/settings',{stt:{auto_send:cfg.stt.auto_send,max_seconds:cfg.stt.max_seconds,silence_seconds:cfg.stt.silence_seconds,device:cfg.stt.device},...(cfg.llm.mode==='simple'?{simple:{stt:sttModel}}:{models:{stt:sttModel}})},'PUT');
   const nextAfterVoice=secondPartner?'done':'voice_input';
@@ -22,27 +22,63 @@ export async function onboardingFinishing(parent,{name,secondPartner=false,onBac
     return voice;
   }
   const copy=(id,chapter,next,label,skip)=>({id,chapter,explanation:true,label,render:p=>explanation(p,id,name),next,skip});
-  const lookPage=(id,title,view,next)=>({id,chapter:'見た目',render:async p=>{p.append(node('h2',title));await mountLook(p,await ensureLook(),{view,onboarding:true,onSingle:()=>{look.singlePath=true;return flow.go('look-single');}});},next:async()=>{await look.previewReady;if(look.pending)throw new Error('画像の処理が終わるまでお待ちください。');await saveLook(look);return next;}});
+  const afterFaces=()=>look.ownedImages?'look-cover-import':'look-cover';
+  async function persistLook(){look.pending=(look.pending||0)+1;try{await saveLook(look);}finally{look.pending--;}}
+  async function describeLook(){
+    look.pending=(look.pending||0)+1;
+    try{const result=await api('/api/look/describe',lookPayload(look));
+      if(!result.filled)throw new Error(result.message);
+      applyLookDescription(look,result);return result;
+    }finally{look.pending--;}
+  }
+  const lookPage=(id,title,view,next)=>({id,chapter:'見た目',render:async p=>{p.append(node('h2',title));await mountLook(p,await ensureLook(),{view,onboarding:true,onSingle:()=>{look.singlePath=true;return flow.go('look-single');},onSheet:()=>flow.go('look-sheet')});},next:async()=>{
+    await look.previewReady;if(look.pending)throw new Error('画像の処理が終わるまでお待ちください。');
+    if(look.reviewReturn)return 'look-confirm';
+    await persistLook();
+    if(view==='faces'){
+      const hasFaces=look.slots.some(Boolean)||look.existing.some(e=>!look.removed.has(e));
+      if(hasFaces&&lookFieldsEmpty(look)&&!look.offeredDescription)return 'look-describe';
+      return afterFaces();
+    }
+    return next;
+  }});
   const voicePage=(step,title,next)=>({id:'voice-'+step,chapter:'声',render:async p=>{p.append(node('h2',title));const editor=await ensureVoice();p.append(voiceHost);editor.renderStep(voiceHost,step);},next});
   const screens=[
-    {backAction:()=>onBack?.(),...copy('look','見た目',()=> 'look-style','次へ',()=> 'voice'),render:async p=>{await explanation(p,'look',name);const note=notice(p,'');action(p,'設定文と性格から下書きする',async()=>{const next=p.nextElementSibling?.querySelector('.primary');if(next)next.disabled=true;try{const draft=await api('/api/look/draft',{});
-      // The draft only quotes what was written about this partner; with nothing to quote, say so and stay.
-      if(!draft.assignments.length){note.update('設定文や性格から読み取れる見た目がありませんでした。「次へ」から入力できます。');p.append(note);return;}
-      applyLookDraft(await ensureLook(),draft);await saveLook(look);note.update('下書きが完了しました。次へ進めます。');p.append(note);}catch(error){note.update(error.message,'error');}finally{if(next)next.disabled=false;}});}},
+    {backAction:()=>onBack?.(),...copy('look','見た目',async()=>{await ensureLook();if(look.ownedImages)look.image.use='sheet';return look.ownedImages?'look-faces':'look-style';},'次へ',()=> 'voice'),render:async p=>{
+      await explanation(p,'look',name);await ensureLook();
+      choiceCards(p,'見た目の整え方',[['create','これから見た目を決めて、画像を作る'],['import','もう画像がある']],look.ownedImages?'import':'create',v=>{look.ownedImages=v==='import';draft.hidden=look.ownedImages;},{recommended:null});
+      const note=notice(p,''),draft=action(p,'設定文と性格から下書きする',async()=>{
+        const next=p.nextElementSibling?.querySelector('.primary');if(next)next.disabled=true;
+        look.pending=(look.pending||0)+1;
+        try{const result=await api('/api/look/draft',{});
+          if(!result.assignments.length){note.update('設定文や性格から読み取れる見た目がありませんでした。「次へ」から入力できます。');return;}
+          applyLookDraft(look,result);await persistLook();note.update('下書きが完了しました。次へ進めます。');
+        }catch(error){note.update(error.message,'error');}finally{look.pending--;if(next)next.disabled=false;}
+      });draft.hidden=!!look.ownedImages;
+    }},
     ...[['style','絵柄'],['profile','人物像'],['face','顔のパーツ'],['hair','髪型'],['outfit','服装']].map(([id,title],i,all)=>lookPage('look-'+id,title,id,i===all.length-1?'look-confirm':'look-'+all[i+1][0])),
     {id:'look-confirm',chapter:'見た目',render:async p=>{
       p.append(node('h2','見た目の確認'));const payload=lookPayload(await ensureLook()),catalog=await api('/api/look/fields');
       const list=node('div',undefined,'onboarding-summary');p.append(list);
-      for(const spec of catalog.fields.filter(s=>s.tab!=='image')){
+      for(const spec of catalog.fields.filter(s=>s.tab!=='image'||(look.reviewReturn&&s.path.startsWith('person.')&&!s.path.startsWith('person.expressions.')))){
         const value=spec.path.split('.').reduce((o,k)=>o?.[k],payload);if(!value)continue;
         const row=node('div',undefined,'summary-row'),content=node('div');row.append(node('span',spec.title));content.append(node('span',value));
-        action(content,'直す',()=>flow.go('look-'+spec.tab)).classList.add('quiet');row.append(content);list.append(row);
+        action(content,'直す',()=>{if(look.reviewReturn&&spec.tab==='image'){field(content,spec.title,value,v=>look.person[spec.path.split('.').at(-1)]=v);}else return flow.go('look-'+spec.tab);}).classList.add('quiet');row.append(content);list.append(row);
       }
       if(!list.children.length)p.append(node('p','まだ決めていません'));
-    },next:async()=>{await saveLook(look);return 'look-sheet';}},
+    },next:async()=>{await persistLook();const target=look.reviewReturn||'look-sheet';delete look.reviewReturn;return target;}},
     lookPage('look-sheet','表情シートを作る','sheet','look-faces'),
     lookPage('look-single','顔の画像1枚を作る','single-prompt','look-faces'),
     lookPage('look-faces','画像の取り込み・確認','faces','look-cover'),
+    {id:'look-describe',chapter:'見た目',label:'今はしない',render:p=>{
+      look.offeredDescription=true;
+      p.append(node('h2','画像から見た目を書き起こす'),node('p',`見た目の欄がまだ空です。取り込んだ画像から書き起こすと、会話でも${name}がこの見た目に沿って話せます。`));
+      const note=notice(p,'');action(p,'画像から書き起こす',async()=>{
+        const next=p.nextElementSibling.querySelector('.primary');next.disabled=true;
+        note.update('画像を読んでいます。','waiting');
+        try{await describeLook();look.reviewReturn=afterFaces();await flow.go('look-confirm');}catch(e){note.update(e.message,'error');}finally{next.disabled=false;}
+      });
+    },next:()=>afterFaces()},
     {...lookPage('look-cover','扉絵を作る','cover-prompt','look-cover-import'),explanation:true,skip:()=> 'voice',render:async p=>{p.append(node('h2','扉絵を作る'),node('p','扉絵はなくても使えます。「飛ばす」で声の設定へ進めます。'));await mountLook(p,await ensureLook(),{view:'cover-prompt',onboarding:true});}},
     lookPage('look-cover-import','画像の取り込み','cover-import','voice'),
     {...copy('voice','声',async()=>{await settings();cfg.tts.enabled=true;cfg.tts.autoplay_proactive=false;return 'voice-autoplay';},'声の設定をする',()=>voiceStep(true)),skipLabel:'あとで'},
@@ -77,7 +113,7 @@ export async function onboardingFinishing(parent,{name,secondPartner=false,onBac
     {id:'export-trial',chapter:'バックアップ',render:p=>p.append(node('h2','バックアップ'),node('p','お試しではバックアップを行いません。設定は通常の起動後に行えます。','muted')),next:()=> 'done'},
     {id:'export-options',chapter:'バックアップ',render:p=>{p.append(node('h2','自動バックアップ'));if(!backup){backupHost=node('div');p.append(backupHost);backup=backupSettings(backupHost,cfg,{managed:true,onboarding:true});}else p.append(backupHost);},next:async()=>{await backup.save();return 'export-confirm';}},
     {id:'export-confirm',chapter:'バックアップ',render:p=>p.append(node('h2','バックアップの確認'),node('p',`${cfg.backup.folder} / ${{off:'しない',daily:'毎日',weekly:'毎週'}[cfg.backup.frequency]}`)),next:()=> 'done'},
-    {id:'done',chapter:secondPartner?'声':'バックアップ',explanation:true,label:`${name}と話しはじめる`,render:async p=>{const saved=await api('/api/look');const portrait=face(name,saved.expressions?.includes('smile')?'smile':'neutral',saved.expressions||[]);if(!saved.expressions?.some(e=>['smile','neutral'].includes(e))){const symbol=node('img');symbol.src='/static/brand/symbol.svg';symbol.alt='';portrait.replaceChildren(symbol);}await explanation(p,'done',name);p.prepend(portrait);},next:()=> 'done'}
+    {id:'done',chapter:secondPartner?'声':'バックアップ',explanation:true,label:`${name}と話しはじめる`,render:async p=>{const saved=await api('/api/look');const portrait=face(name,saved.expressions?.includes('smile')?'smile':'neutral',saved.expressions||[]);if(!saved.expressions?.length){const symbol=node('img');symbol.src='/static/brand/symbol.svg';symbol.alt='';portrait.replaceChildren(symbol);}await explanation(p,'done',name);p.prepend(portrait);},next:()=> 'done'}
   ];
   if(settingsEntry){
     onboardingChrome();await settings();const initial=JSON.stringify({model:cfg.models.stt||'',device:cfg.stt.device});sttModel=cfg.models.stt||'';
@@ -93,11 +129,31 @@ export async function onboardingFinishing(parent,{name,secondPartner=false,onBac
     if(settingsEntry==='input')selected.find(s=>s.id==='input-model').next=()=>sttModel.startsWith('local/')?'input-download':'entry-summary';
     flow=sequence(parent,[summary,...selected],{setupHelp:false,showCount:false,visibleChapters:[summary.chapter],onDone:()=>{}});await flow.start();return flow;
   }
+  if(lookOnly){
+    await ensureLook();
+    const selected=screens.filter(s=>s.chapter==='見た目');
+    for(const screen of selected){if(screen.skip)screen.skip=()=> 'done';if(screen.id==='look-cover-import'){const next=screen.next;screen.next=async()=>{await next();return 'done';};}}
+    let start=coverOnly?'look-cover':'look',describeError;
+    if(describe){
+      selected.find(s=>s.id==='look-confirm').backAction=()=>onBack?.();
+      notice(parent,'画像を読んでいます。','waiting');try{await describeLook();look.reviewReturn='done';start='look-confirm';}catch(e){describeError=e.message;}
+    }
+    // Count only the pages of the chosen route, as in onboarding (own images skip the field pages).
+    const lookProgress=screen=>{
+      if(screen.explanation)return {current:1,total:1};
+      let route=selected.filter(s=>!s.explanation&&s.id!=='look-describe').map(s=>s.id);
+      if(look?.ownedImages)route=['look-faces','look-cover-import'];else if(!look?.singlePath)route=route.filter(id=>id!=='look-single');
+      return {current:Math.max(1,route.indexOf(screen.id)+1),total:route.length};
+    };
+    flow=sequence(parent,selected,{telemetryFirst:null,visibleChapters:['見た目'],progressFor:lookProgress,onDone:onLookDone});
+    await flow.start(start);if(describeError)notice(parent.querySelector('section'),describeError,'error');
+    return Object.assign(flow,{busy:()=>!!look.pending,save:()=>saveLook(look),snapshot:()=>lookSnapshot(look)});
+  }
   const filtered=secondPartner?screens.filter(s=>!['声で入力','バックアップ'].includes(s.chapter)||s.id==='done'):screens;
   flow=sequence(parent,filtered,{telemetryFirst:!secondPartner,visibleChapters:secondPartner?chapters.filter(c=>!['AI','声で入力','バックアップ'].includes(c)):chapters,progressFor:screen=>{
     if(screen.explanation)return {current:1,total:1};
     let route=filtered.filter(s=>s.chapter===screen.chapter&&!s.explanation).map(s=>s.id);
-    if(screen.chapter==='見た目'&&!look?.singlePath)route=route.filter(id=>id!=='look-single');
+    if(screen.chapter==='見た目'){route=route.filter(id=>id!=='look-describe');if(look?.ownedImages)route=['look-faces','look-cover-import'];else if(!look?.singlePath)route=route.filter(id=>id!=='look-single');}
     if(screen.chapter==='声')route=['voice-autoplay','voice-engine',...(cfg?.tts.engine==='external'?['voice-url','voice-model','voice-name','voice-style']:[...(!voice?.ready()?['voice-download']:[]),'voice-method',voice?.method()==='clone'?'voice-reference':'voice-description']),'voice-confirm'];
     if(screen.chapter==='声で入力')route=['input-model',...(sttModel?.startsWith('local/')?['input-device']:[]),'input-options','input-confirm'];
     if(screen.chapter==='バックアップ')route=cfg?.backup_status.trial?['export-trial']:['export-options','export-confirm'];

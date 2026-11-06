@@ -215,7 +215,7 @@ def test_look_raw_image_without_pillow_and_packet(pipeline, tmp_path, monkeypatc
     assert client.put("/api/look/neutral", content=PNG, headers={"Content-Type": "image/png"}).status_code == 200
     assert client.get("/looks/fixture/sad").content == PNG
     assert client.put("/api/look/no-slot", content=PNG, headers={"Content-Type": "image/png"}).status_code == 422
-    assert client.put("/api/look/smile", content=b"x" * (5 * 1024 * 1024 + 1), headers={"Content-Type": "image/png"}).status_code == 413
+    assert client.put("/api/look/smile", content=b"x" * (40 * 1024 * 1024 + 1), headers={"Content-Type": "image/png"}).status_code == 413
     assert client.put("/api/look/meta", json={"accent": "akane", "features": "白い髪、青い服"}).status_code == 200
     prompt = client.post("/api/look/prompt", json={"features": "白い髪、青い服", "free_text": "illustration"}).json()["prompt"]
     assert "白い髪、青い服" in prompt and "4" in prompt and "日本" not in prompt

@@ -14,7 +14,7 @@ TITLES = dict(zip(
 
 
 # Author copy that belongs to a part of a screen rather than to a step of the flow.
-PARTS = {'import_help': '会話の書き出し方'}
+PARTS = {'import_help': '会話の書き出し方', 'look_import_help': '取り込む画像の形'}
 
 
 def explanation(screen, root=ROOT / 'onboarding'):

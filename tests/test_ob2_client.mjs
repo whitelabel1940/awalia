@@ -25,6 +25,7 @@ globalThis.fetch=async(path,options={})=>{
   const route=path.split('?')[0],body=options.body?JSON.parse(options.body):null;calls.push({route,body});let value;
   if(route==='/api/partner')value={partner:{id:'existing',name:'先輩'}};
   else if(route==='/api/settings')value=cfg;
+  else if(route==='/api/look')value={person:{},image:{},expressions:[]};
   else if(route==='/api/onboarding/state')value={consent:{at:'test'}};
   else if(route.startsWith('/api/onboarding/'))value={text:`# ${route.split('/').at(-1)}\n\n{name}の説明`};
   else if(route==='/api/bootstrap/questionnaire')value={questionnaire:{common_choices:{leave_open:'あなたのパートナーに任せる'},sections:[{id:'now_life',questions:[questions[0]]}]}};

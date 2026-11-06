@@ -1,4 +1,4 @@
-import {notice} from './onboarding.js';
+import {notice,renderExplanation} from './onboarding.js';
 import {api, scoped, node, field, select, action, card, partnerId, icon} from './ui.js';
 export const expressions = ['neutral','smile','shy','surprised','sad','troubled','thinking','pout'];
 const labels = ['ふつう','笑顔','照れ','驚き','悲しい','困った','考え中','すねる'];
@@ -10,6 +10,13 @@ export function drawCover(canvas,image){
 const valueAt=(state,path)=>path.split('.').reduce((v,k)=>v?.[k],state);
 function setAt(state,path,value){const keys=path.split('.');let target=state;for(const k of keys.slice(0,-1))target=target[k]??={};target[keys.at(-1)]=value;}
 export function lookPayload(state){return {version:2,person:state.person,image:state.image,features:state.features};}
+export function lookFieldsEmpty(state){
+  const filled=value=>typeof value==='string'?Boolean(value.trim()):Object.entries(value||{}).some(([key,v])=>key!=='expressions'&&filled(v));
+  return !filled(state.person);
+}
+export function applyLookDescription(state,result){
+  for(const item of result.assignments){if(state.touched.has(item.path)||valueAt(state,item.path)?.trim())continue;setAt(state,item.path,item.value);}
+}
 const imageIds=new WeakMap();let imageSerial=0;
 function imageId(image){if(!image)return null;if(!imageIds.has(image))imageIds.set(image,++imageSerial);return imageIds.get(image);}
 export function lookSnapshot(state){return JSON.stringify({...lookPayload(state),slots:state.slots.map(s=>s?{...s,image:imageId(s.image)}:null),cover:imageId(state.cover),removed:[...state.removed].sort(),removedCover:state.removedCover});}
@@ -28,7 +35,7 @@ async function readImage(file) {
 function slot(image, sx=0, sy=0, w=image.width, h=image.height) {return {image,sx,sy,w,h,x:0,y:0,zoom:1};}
 const isExpression=path=>path==='person.face.habits'||path.startsWith('person.expressions.');
 export function applyLookDraft(state,result){for(const item of result.assignments){if(state.touched.has(item.path)||valueAt(state,item.path))continue;setAt(state,item.path,item.value);state.quotes[item.path]=item;}state.suggestions=[...state.suggestions.filter(i=>isExpression(i.path)),...result.suggestions];}
-export async function mountLook(parent, state, {view, onboarding=false, onSingle, world, draftPath='/api/look/draft', expressionPath='/api/look/expression-suggestions'}={}) {
+export async function mountLook(parent, state, {view, onboarding=false, onSingle, onSheet, world, draftPath='/api/look/draft', expressionPath='/api/look/expression-suggestions'}={}) {
   const screenParent=parent;
   function pendingButton(){if(onboarding){const next=screenParent.nextElementSibling?.querySelector('.primary');if(next)next.disabled=!!state.pending;}}
   async function request(...args){state.pending=(state.pending||0)+1;pendingButton();try{return await api(...args);}finally{state.pending--;pendingButton();}}
@@ -123,10 +130,12 @@ export async function mountLook(parent, state, {view, onboarding=false, onSingle
   const separate=field(expressionBox,'別々の画像をまとめて選ぶ（1枚なら「ふつう」）','',()=>{}); separate.type='file';separate.multiple=true;separate.accept=sheet.accept;separate.parentElement.hidden=true;const separateButton=action(expressionBox,'別々の画像をまとめて選ぶ',()=>separate.click());separateButton.classList.add('quiet');
   const status=node('p','','status');status.setAttribute('role','status');imports.append(status);expressionBox.append(node('p','並び順は、ふつう・笑顔・照れ・驚き・悲しい・困った・考え中・すねる。空いた表情は「ふつう」で代用します。','small muted'));
   const grid=node('div',undefined,'grid8');expressionBox.append(grid,separateButton);
+  const fallbackGuide=node('div',undefined,'look-fallback-guide');expressionBox.append(fallbackGuide);
   const coverBox=node('section',undefined,'set look-cover');coverBox.append(node('h3','ノートの扉絵（横長）'),node('p','横長のまま取り込みます。表情の8つの顔とは別に保存します。','small muted'));
   const coverDrop=node('div',undefined,'drop');coverDrop.append(node('p','扉絵をここにドロップ（横長）'));coverBox.append(coverDrop);
   const coverInput=field(coverDrop,'扉絵を1枚選ぶ','',()=>{});coverInput.type='file';coverInput.accept=sheet.accept;coverInput.parentElement.hidden=true;action(coverDrop,'ファイルを選ぶ',()=>coverInput.click()).classList.add('quiet');
   const coverPreview=node('div',undefined,'cover-preview');coverBox.append(coverPreview);imports.append(coverBox);
+  try{const help=await request('/api/onboarding/look_import_help');for(const box of [expressionBox,coverBox]){const copy=node('div',undefined,'look-import-help');renderExplanation(copy,help.text||'');box.prepend(copy);}}catch{/* Optional author copy may be unavailable. */}
   const importPanels=[expressionBox,coverBox],importButtons=[];
   function activateImport(index){state.importTab=index;importPanels.forEach((panel,i)=>{panel.hidden=i!==index;importButtons[i].setAttribute('aria-selected',String(i===index));importButtons[i].tabIndex=i===index?0:-1;});}
   for(const [i,title]of ['表情','扉絵'].entries()){
@@ -160,9 +169,15 @@ export async function mountLook(parent, state, {view, onboarding=false, onSingle
   function renderSlots() {
     sync();refreshPreview();
     grid.replaceChildren();
+    const available=expressions.filter((e,i)=>state.slots[i]||(state.existing.includes(e)&&!state.removed.has(e)));
+    fallbackGuide.replaceChildren();
+    if(available.length===1&&available[0]==='neutral'){
+      fallbackGuide.append(node('p','『ふつう』だけでも使えます。空いた表情は『ふつう』で表示します。ほかの表情は、それぞれの欄を押すと 1 枚ずつ足せます。'));
+      action(fallbackGuide,'『ふつう』の画像を添付して表情シートを作る',()=>{state.image.from_reference=true;state.onboardingSheetUse='sheet';state.image.use='sheet';if(onSheet)return onSheet();sync();refreshPreview();promptCard.scrollIntoView?.({block:'start'});}).classList.add('quiet');
+    }else if(available.length&&!available.includes('neutral'))fallbackGuide.append(node('p','「ふつう」がない時は、取り込んである最初の顔を代わりに表示します。'));
     expressions.forEach((expression,i)=>{
       const box=node('div',undefined,'expr'), canvas=node('canvas');canvas.setAttribute('aria-label',`${labels[i]}のプレビュー`);const picker=action(box,labels[i],()=>replace.click());picker.classList.add('expression-picker');picker.append(canvas);drawSlot(canvas,state.slots[i]);
-      if(!state.slots[i]){if(state.existing.includes(expression)&&!state.removed.has(expression)){const img=node('img');img.src=`/looks/${encodeURIComponent(partnerId)}/${expression}`;img.alt=labels[i];img.style.width='100%';canvas.replaceWith(img);}else picker.append(node('span',i===0?'未設定':'ふつうで代用','muted'));canvas.hidden=true;}
+      if(!state.slots[i]){if(state.existing.includes(expression)&&!state.removed.has(expression)){const img=node('img');img.src=`/looks/${encodeURIComponent(partnerId)}/${expression}`;img.alt=labels[i];img.style.width='100%';canvas.replaceWith(img);}else picker.append(node('span',available.length?(available.includes('neutral')?'ふつうで代用':'最初の顔で代用'):'未設定','muted'));canvas.hidden=true;}
       const replace=field(box,`${labels[i]}を差し替え`,'',()=>{});replace.type='file';replace.accept=sheet.accept;replace.parentElement.hidden=true;if(state.slots[i]||(state.existing.includes(expression)&&!state.removed.has(expression)))picker.append(node('span','画像','muted'));
       replace.onchange=async()=>{state.pending=(state.pending||0)+1;try{if(replace.files.length){state.slots[i]=slot(await readImage(replace.files[0]));state.removed.delete(expression);renderSlots();}}catch(e){status.textContent=e.message;}finally{state.pending--;}};
       if(state.slots[i]) {

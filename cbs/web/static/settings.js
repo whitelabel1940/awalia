@@ -8,7 +8,8 @@ import {requestSettings} from './requests.js';
 import {costSettings} from './costs.js';
 import {api, failureText, node, field, select, action, card, shell, confirmDialog, partnerId, displayDefaults} from './ui.js';
 import {applyTheme, applyAccent, accents, preference, remember} from './theme.js';
-import {newLook, mountLook, saveLook, lookSnapshot} from './look-editor.js';
+import {newLook, saveLook, lookSnapshot} from './look-editor.js';
+import {onboardingFinishing} from './onboarding-finishing.js';
 import {voiceSettings} from './voice.js';
 import {embeddingDownload} from './embedding-download.js';
 import {aiQuestionChoices} from './setting-choices.js';
@@ -282,22 +283,14 @@ export async function settingsScreen(parent, name, {setup=false}={}) {
   if(setup&&cfg.ai_ready)await verify();
 }
 export async function editLook(parent) {
-  const state=newLook(await api('/api/look'));
-  // From 「扉絵を整える」 the basic look is already set: start on the cover and show the prompt step.
-  const cover=new URLSearchParams(location.search).get('use')==='cover';
-  if(cover)state.image.use='cover';
-  await mountLook(parent,state);
-  const navigation=settingsNavigation();
-  let saving=false;
+  const state=newLook(await api('/api/look')),params=new URLSearchParams(location.search);
+  const partner=(await api('/api/partner')).partner;
+  const navigation=settingsNavigation();let saving=false,clean=()=>{};
   const save=async()=>{if(saving||state.pending)return false;saving=true;try{await saveLook(state);clean();return true;}finally{saving=false;}};
-  const clean=navigation.register('look',parent,save,()=>lookSnapshot(state));navigation.activate('look');
-  if(cover){
-    [...parent.querySelectorAll('[role=tab]')].find(t=>t.textContent.trim()==='扉絵')?.click();
-    [...parent.querySelectorAll('h2,h3')].find(h=>h.textContent.startsWith('2.'))?.scrollIntoView?.({block:'start'});
-  }
-  action(parent,'見た目を保存する',async()=>{if(await save())location.href='/#settings';},true);
-  const back=node('a','あとで決める','btn');back.href='/#settings';parent.append(back);
-  return {busy:()=>saving||!!state.pending,save};
+  const done=()=>{clean();location.href='/#settings/look';};
+  const flow=await onboardingFinishing(parent,{name:partner?.name||'あなたのパートナー',lookOnly:true,lookState:state,describe:params.has('describe'),coverOnly:params.get('use')==='cover',onBack:()=>{location.href='/#settings/look';},onLookDone:done});
+  clean=navigation.register('look',parent,save,()=>lookSnapshot(state));navigation.activate('look');
+  return {...flow,busy:()=>saving||!!state.pending,save};
 }
 
 export {embeddingIdentity} from './settings-entry.js';
