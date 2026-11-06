@@ -49,7 +49,7 @@ for(const lookOnly of [false,true]){
   await next();assert.equal(root.querySelector('h2').textContent,'画像の取り込み・確認');
   assert(visible(root.querySelector('.drop')),'owned-image route accepts a sheet even after previously making a single face');
   assert(root.querySelector('.look-import-help strong').textContent==='取り込む画像の形');
-  assert.equal(root.querySelector('.look-import-help li').textContent,help.split('\n')[1].slice(2));
+  assert.equal(root.querySelector('.look-import-help li').textContent,help.split(/\r?\n/)[1].slice(2));
   await click('戻る');assert(root.querySelector('input[value=import]').checked);await next();
   await next();assert.equal(root.querySelector('h2').textContent,'画像の取り込み');assert(visible(root.querySelector('.look-cover')));
   assert(!calls.some(c=>c.route==='/api/look/describe'));
