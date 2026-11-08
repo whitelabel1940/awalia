@@ -455,7 +455,7 @@ def test_encrypted_export_never_stages_plaintext_in_sync_folder(sample, tmp_path
     def inspect(source, target, password, *, decrypt=False):
         if not decrypt:
             assert source.is_relative_to(data / 'backup' / 'work')
-            assert target.is_relative_to(destination.parent)
+            assert target.is_relative_to(data / 'backup' / 'work')
             assert not list(destination.parent.rglob('*.zip'))
             assert not list(destination.parent.rglob('*.sqlite3'))
         calls.append(decrypt)
@@ -465,6 +465,97 @@ def test_encrypted_export_never_stages_plaintext_in_sync_folder(sample, tmp_path
     assert calls == [False, True]
     assert list(destination.parent.iterdir()) == [destination]
     assert list((data / 'backup' / 'work').iterdir()) == []
+
+
+def test_sync_folder_sees_only_the_finished_backup(sample, tmp_path, monkeypatch):
+    # A sync client holds and uploads whatever appears in its folder; work files stay local.
+    data, _, _, _ = sample
+    folder = tmp_path / 'GoogleDrive'
+    folder.mkdir()
+    original = backup.verify_zip
+    def inspect(path):
+        assert Path(path).is_relative_to(data / 'backup' / 'work')
+        assert list(folder.iterdir()) == []
+        return original(path)
+    monkeypatch.setattr(backup, 'verify_zip', inspect)
+    destination = folder / backup.export_name('scheduled')
+    export(sample, destination, kind='scheduled')
+    assert list(folder.iterdir()) == [destination]
+    assert list((data / 'backup' / 'work').iterdir()) == []
+
+
+def test_work_folder_cleanup_failure_does_not_fail_a_finished_backup(sample, tmp_path, monkeypatch):
+    data, _, _, _ = sample
+    def held(path, *args, **kwargs):
+        raise PermissionError(5, 'held by another process')
+    monkeypatch.setattr(backup.shutil, 'rmtree', held)
+    destination = tmp_path / 'out' / 'copy.zip'
+    export(sample, destination)
+    assert backup.verify_zip(destination)
+
+
+def test_old_leftovers_are_swept_and_recent_or_foreign_files_are_kept(sample, tmp_path):
+    import os, stat
+    data, _, _, _ = sample
+    folder = tmp_path / 'GoogleDrive'
+    old, recent = folder / '.awalia-bk1-old', folder / '.awalia-bk1-recent'
+    for directory in (old, recent):
+        directory.mkdir(parents=True)
+        (directory / 'cbs.sqlite3').write_bytes(b'stale copy')
+    partial = folder / '.awalia-bk1-0123.partial'
+    partial.write_bytes(b'partial')
+    mine = folder / '.awalia-bk1-notes.txt'
+    mine.write_bytes(b'not ours to delete')
+    os.chmod(old / 'cbs.sqlite3', stat.S_IREAD)
+    os.chmod(old, stat.S_IREAD | stat.S_IEXEC)  # sync clients mark folders read-only
+    past = clock.now().timestamp() - 2 * backup.LEFTOVER_AGE
+    for path in (old, partial, mine):
+        os.utime(path, (past, past))
+    export(sample, folder / backup.export_name('scheduled'), kind='scheduled')
+    assert not old.exists() and not partial.exists()
+    assert recent.exists() and mine.exists()
+
+
+def test_publish_across_volumes_copies_then_renames(tmp_path, monkeypatch):
+    import errno
+    source, destination = tmp_path / 'work.zip', tmp_path / 'other' / 'copy.zip'
+    destination.parent.mkdir()
+    source.write_bytes(b'finished')
+    original = Path.replace
+    def cross(self, target):
+        if self == source:
+            raise OSError(errno.EXDEV, 'cross-device link')
+        return original(self, target)
+    monkeypatch.setattr(Path, 'replace', cross)
+    backup.publish(source, destination)
+    assert destination.read_bytes() == b'finished'
+    assert list(destination.parent.iterdir()) == [destination]
+
+
+def test_failed_automatic_backup_retries_hourly_not_on_every_upkeep(sample, tmp_path, monkeypatch):
+    data, chars, store, cfg = sample
+    folder = tmp_path / 'scheduled'
+    folder.mkdir()
+    cfg.backup.folder, cfg.backup.frequency = str(folder), 'daily'
+    calls = []
+    def broken(*args, kind, **kwargs):
+        calls.append(kind)
+        raise PermissionError('held')
+    monkeypatch.setattr(backup, 'build_export', broken)
+    worker = backup.BackupWorker(store, chars, data, lambda: cfg)
+    now = [1000.0]
+    monkeypatch.setattr(backup.time, 'monotonic', lambda: now[0])
+    for minutes in (0, 5, 10):
+        now[0] = 1000.0 + minutes * 60
+        worker.request_due()
+        worker.wait()
+    assert sorted(calls) == ['auto', 'scheduled']
+    now[0] = 1000.0 + backup.RETRY_AFTER + 1
+    worker.request_due()
+    worker.wait()
+    assert sorted(calls) == ['auto', 'auto', 'scheduled', 'scheduled']
+    assert worker.status()['scheduled_error'] == backup.ERROR
+    worker.close()
 
 
 def test_clean_settings_keeps_hashes_and_token_counts_but_drops_credentials():

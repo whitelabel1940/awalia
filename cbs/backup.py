@@ -1,7 +1,8 @@
 """BK1 snapshots. No provider clients, foreground locks, or exception text."""
-from contextlib import closing, contextmanager, nullcontext
+from contextlib import closing, contextmanager
 from contextvars import copy_context
 from datetime import timedelta
+import errno
 import hashlib
 import json
 from pathlib import Path
@@ -17,9 +18,10 @@ import tomllib
 from uuid import uuid4
 import zipfile
 
+from cbs.shutdown import UpkeepStopped
 from cbs import clock
 
-SCHEMA_VERSION = 6  # AU1 research candidates and explicit activity interest links.
+SCHEMA_VERSION = 7  # R13 versioned compressed traces; BK1 payload stays plain JSON.
 FORMAT_VERSION = 1
 MAGIC = b'AWALIA-BK1\x00'
 OWNER = 'awalia-bk1'
@@ -58,11 +60,53 @@ def retry_locked(function, *args, **kwargs):
 
 @contextmanager
 def temporary_directory(directory):
-    path = Path(tempfile.mkdtemp(prefix='.awalia-bk1-', dir=directory))
+    path = Path(tempfile.mkdtemp(prefix=TEMP_PREFIX, dir=directory))
     try:
         yield path
     finally:
-        retry_locked(shutil.rmtree, path)
+        try:
+            retry_locked(shutil.rmtree, path)
+        except OSError:
+            pass  # A finished backup is not a failure; sweep_leftovers removes it next time.
+
+
+TEMP_PREFIX = '.awalia-bk1-'
+LEFTOVER_AGE = 3600
+RETRY_AFTER = 3600  # seconds between automatic retries after a failed auto/scheduled backup
+
+
+def sweep_leftovers(folder):
+    """Remove our own work leftovers (older versions staged inside the destination folder too)."""
+    now = time.time()
+    for path in Path(folder).glob(TEMP_PREFIX + '*'):
+        try:
+            if linked(path) or now - path.stat().st_mtime < LEFTOVER_AGE:
+                continue
+            if path.is_dir():
+                shutil.rmtree(path, onexc=lambda function, name, _: (Path(name).chmod(0o700), function(name)))
+            elif path.name.endswith('.partial'):
+                path.unlink()
+        except OSError:
+            continue
+
+
+def publish(source, destination):
+    """One rename on the same volume; across volumes, copy to a hidden sibling first, then rename."""
+    try:
+        retry_locked(source.replace, destination)
+        return
+    except OSError as error:
+        if getattr(error, 'winerror', None) != 17 and error.errno != errno.EXDEV:
+            raise
+    partial = destination.with_name(f'{TEMP_PREFIX}{uuid4().hex}.partial')
+    try:
+        shutil.copyfile(source, partial)
+        retry_locked(partial.replace, destination)
+    finally:
+        try:
+            partial.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def key_like(value):
@@ -125,6 +169,9 @@ def readonly(path):
 def snapshot_db(source, target):
     with closing(readonly(source)) as src, closing(sqlite3.connect(target)) as dst:
         src.backup(dst, pages=128, sleep=.01)
+        from cbs.storage import rewrite_traces, vacuum_traces
+        rewrite_traces(dst, backup=True)
+        vacuum_traces(dst)
         if dst.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
             raise ValueError('invalid snapshot')
 
@@ -227,7 +274,7 @@ def _crypt(source, target, password, *, decrypt=False):
 
 
 def build_export(db_path, characters_root, data_dir, current_id, destination, *, password='', kind='manual', config_path=None):
-    """Build/verify in a sibling temporary directory; publish by one atomic rename."""
+    """Build/verify in the local work folder; publish the finished file by one rename."""
     from cbs.first_run import trial_info
     if trial_info(data_dir):
         raise ValueError('お試しではバックアップを行いません。')
@@ -235,11 +282,13 @@ def build_export(db_path, characters_root, data_dir, current_id, destination, *,
     if destination.exists():
         raise FileExistsError('destination exists')
     destination.parent.mkdir(parents=True, exist_ok=True)
-    staging = data_dir / 'backup' / 'work' if password else destination.parent
+    # Never stage in the destination: a sync client (Google Drive, OneDrive) holds and uploads
+    # the work files there, and an encrypted export must never put plaintext there.
+    staging = data_dir / 'backup' / 'work'
     staging.mkdir(parents=True, exist_ok=True)
-    # An encrypted export must never stage plaintext in a cloud-sync destination.
-    with temporary_directory(staging) as temporary, \
-            (temporary_directory(destination.parent) if password else nullcontext()) as publish:
+    sweep_leftovers(staging)
+    sweep_leftovers(destination.parent)
+    with temporary_directory(staging) as temporary:
         work = Path(temporary)
         snap = work / 'cbs.sqlite3'
         snapshot_db(db_path, snap)
@@ -317,7 +366,7 @@ def build_export(db_path, characters_root, data_dir, current_id, destination, *,
         verify_zip(plain)
         result = plain
         if password:
-            result = Path(publish) / 'payload.awalia'
+            result = work / 'payload.awalia'
             _crypt(plain, result, password)
             verified = work / 'verified.zip'
             try:
@@ -325,7 +374,7 @@ def build_export(db_path, characters_root, data_dir, current_id, destination, *,
                 verify_zip(verified)
             finally:
                 verified.unlink(missing_ok=True)
-        retry_locked(result.replace, destination)
+        publish(result, destination)
     return manifest
 
 
@@ -392,6 +441,7 @@ class BackupWorker:
         self.closed = False
         self.state_path = self.data_dir / 'backup' / 'status.json'
         self.state = {}
+        self.failed_at = {}
         try:
             if self.trial:
                 return
@@ -441,10 +491,13 @@ class BackupWorker:
         with self.condition:
             auto = self.state.get('auto_success')
             scheduled = self.state.get('scheduled_success')
-        if not auto or clock.parse(auto).date() < today:
+            # Upkeep calls this every few minutes; after a failure, retry hourly, not on every call.
+            waiting = {kind for kind, at in self.failed_at.items() if time.monotonic() - at < RETRY_AFTER}
+        if 'auto' not in waiting and (not auto or clock.parse(auto).date() < today):
             self.request('auto')
         gap = 1 if cfg.frequency == 'daily' else 7
-        if cfg.frequency != 'off' and cfg.folder and (not scheduled or (today - clock.parse(scheduled).date()).days >= gap):
+        if 'scheduled' not in waiting and cfg.frequency != 'off' and cfg.folder and (
+                not scheduled or (today - clock.parse(scheduled).date()).days >= gap):
             self.request('scheduled')
 
     def _save_state(self):
@@ -488,12 +541,20 @@ class BackupWorker:
                         self.state[kind + '_success'] = clock.iso()
                         self.state.pop(kind + '_error', None)
                         self.state.pop(kind + '_error_type', None)
+                        self.failed_at.pop(kind, None)
                         # A full backup now exists, so an earlier failed pre-migration copy no longer matters.
                         self.state.pop('migration_error', None)
                         self.state.pop('migration_error_type', None)
                 if kind != 'manual':
                     self._save_state()
                 self._expire_downloads()
+            except UpkeepStopped:
+                with self.condition:
+                    job.update(status='failed', error=ERROR)
+                    self.pending.clear()
+                    self.thread = None
+                    self.condition.notify_all()
+                return
             except Exception as error:
                 from cbs.telemetry import record_error
                 record_error(self.store, 'backup', error)
@@ -502,6 +563,7 @@ class BackupWorker:
                     if kind != 'manual':
                         self.state[kind + '_error'] = ERROR
                         self.state[kind + '_error_type'] = error_type(error)
+                        self.failed_at[kind] = time.monotonic()
                 if kind != 'manual':
                     try:
                         self._save_state()

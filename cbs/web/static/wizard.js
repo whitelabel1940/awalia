@@ -22,7 +22,9 @@ let onboardingRender,creationVersion=0;
 function select(parent,title,options,value,change){if(!onboardingRender)return nativeSelect(parent,title,options,value,change);const state={value};choiceCards(parent,title,Object.entries(options).map(([v,l])=>[v,l,policyDescriptions[v]||'']),value,v=>{state.value=v;change(v);});return state;}
 let cleanAugment=()=>{};
 async function residentPage(partner,pageBusy){
-  if(!isResident()||!partner)return;
+  if(!isResident())return;
+  await markResidentReady();
+  if(!partner)return;
   const sessions=await api('/api/sessions'),session=sessions[0]||await api('/api/sessions',{});
   const histories=await Promise.all(sessions.map(s=>api(`/api/sessions/${s.id}/turns`)));
   let after=Math.max(0,...histories.flat().map(t=>t.id));
@@ -36,7 +38,6 @@ async function residentPage(partner,pageBusy){
     const query=new URLSearchParams({character:partner.id});if(target)query.set('resident_turn',target.turnId);
     location.assign(`/?${query}#talk`);
   }
-  await markResidentReady();
   await startResident({settings,busy:pageBusy,
     opening:async background=>{const result=await api('/api/proactive/opening',{session_id:session.id,after_turn_id:after,...(background?{background:true}:{})});if(result.speak)await reply(result);return result;},
     idle:()=>request('/api/proactive/idle'),habit:()=>request('/api/proactive/habit'),onReply:reply,onOpen:open,onFocus:()=>open(),onError:report});
@@ -248,7 +249,7 @@ function render(){
   if(lookOnly){const partner=(await api('/api/partner')).partner;if(!partner){location.replace('/wizard');return;}selectPartner(partner.id);shell('settings',partner.name);$('heading').textContent='顔と表情を整える';$('subtitle').textContent='見た目は、あとから何度でも整えられます。';const editor=await editLook($('screen'));await residentPage(partner,editor.busy);return;}
   if(!augmentId)restoreWelcome=!(await api('/api/partner')).partner;
   if(!augmentId){
-    if(restoreWelcome){$('navigation').replaceChildren();await onboardingAI($('screen'),{onWelcome:welcomeRestore});}
+    if(restoreWelcome){await residentPage(null);$('navigation').replaceChildren();await onboardingAI($('screen'),{onWelcome:welcomeRestore});}
     else {if(await connectionGate($('screen')))return;await onboardingAI($('screen'),{partnerOnly:true});}
   }
   catalog=await api('/api/bootstrap/questionnaire');

@@ -112,8 +112,9 @@ def install_restore(app, pipeline, data_dir):
         with lock:
             path = root / 'notice.json'
             if not path.exists():
-                return {'created_at': None}
+                return {'created_at': None, 'backup_folder': None}
             restore.safe_tree(path)
             value = json.loads(path.read_text(encoding='utf-8'))
             path.unlink()
-            return {'created_at': value['created_at']}
+            folder = value.get('backup_folder')
+            return {'created_at': value['created_at'], 'backup_folder': folder if isinstance(folder, str) and folder else None}

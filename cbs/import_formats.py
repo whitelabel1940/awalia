@@ -106,7 +106,10 @@ class Conversation:
         return cls(**{**value, 'messages': [Message(**m) for m in value['messages']]})
 
 
-ROLES = {'user': 'user', 'human': 'user', 'prompt': 'user', 'assistant': 'assistant', 'response': 'assistant'}
+ROLES = {'user': 'user', 'human': 'user', 'prompt': 'user', 'assistant': 'assistant', 'response': 'assistant',
+         # AI Chat Exporter family (chatgptexporter.com / ai-chat-exporter.com / .net) names the speaker.
+         'gemini': 'assistant', 'chatgpt': 'assistant', 'claude': 'assistant'}
+SPEAKERS = '|'.join(['Prompt', 'User', 'Response', 'Assistant', 'Gemini', 'ChatGPT', 'Claude'])
 
 
 def finish(fmt, data, raw, *, metadata=None):
@@ -192,7 +195,15 @@ def parse_json(data):
             result.append(finish('claude', item, raw))
         elif 'messages' in item:
             for m in item['messages']:
-                raw.append((m.get('role'), m.get('say', m.get('content', '')), m.get('time') or m.get('timestamp') or m.get('created_at'), m.get('attachments', [])))
+                if m.get('checked') is False:  # Left unselected in the exporter.
+                    continue
+                parts = m.get('contents')
+                if isinstance(parts, list):
+                    # Gemini Exporter splits a reply into thinking/text parts; `text` mixes both.
+                    content = [p.get('content', '') for p in parts if isinstance(p, dict) and p.get('type') == 'text']
+                else:
+                    content = m.get('say', m.get('content', m.get('text', '')))
+                raw.append((m.get('role'), content, m.get('time') or m.get('timestamp') or m.get('created_at'), m.get('attachments', [])))
             result.append(finish('exporter', item, raw, metadata=item.get('metadata')))
         else:
             raise ValueError('対応する書き出し形式ではありません。')
@@ -201,7 +212,7 @@ def parse_json(data):
 
 def parse_markdown(text):
     meta, raw, role, lines, at = {}, [], None, [], None
-    fence = None
+    fence, thinking, unknown, pending = None, False, None, None
     def flush():
         if role:
             raw.append((role, '\n'.join(lines).strip(), at, []))
@@ -209,11 +220,29 @@ def parse_markdown(text):
         if re.match(r'^\s*(```|~~~)', line):
             marker = line.strip()[:3]
             fence = None if fence == marker else marker if fence is None else fence
-        heading = re.fullmatch(r'##\s+(Prompt|User|Response|Assistant):?\s*', line, re.I) if fence is None else None
+        heading = re.fullmatch(rf'##\s+({SPEAKERS}):?\s*', line, re.I) if fence is None else None
+        # An exporter speaker heading we do not know ("## Name:" then a timestamp) must not
+        # be folded silently into the previous speaker's text.
+        if pending is not None and line.strip():
+            if timestamp(line) and not unknown:
+                unknown = pending
+            pending = None
+        if fence is None and not heading:
+            other = re.fullmatch(r'##\s+([^\s#:][^#:]{0,40}):\s*', line)
+            if other:
+                pending = other[1]
         if heading:
             flush()
-            role, lines, at = heading[1].lower(), [], None
+            role, lines, at, thinking = heading[1].lower(), [], None, False
         elif role:
+            # Gemini Exporter quotes the model's "Thinking steps" before the answer; they are not the reply.
+            if not lines and fence is None and re.match(r'^>\s*\*\*(Thinking|Thought)\b', line):
+                thinking = True
+                continue
+            if thinking:
+                if line.startswith('>') or not line.strip():
+                    continue
+                thinking = False
             if not lines and timestamp(line):
                 at = line.strip().removeprefix('> ')
             elif re.match(r'^Powered by ', line) and fence is None:
@@ -233,7 +262,10 @@ def parse_markdown(text):
                 else:
                     meta.setdefault('dates', {})[key] = value
     flush()
-    return [finish('exporter', {'metadata': meta}, raw, metadata=meta)]
+    conversation = finish('exporter', {'metadata': meta}, raw, metadata=meta)
+    if unknown:
+        conversation.error = f'発言の見出し「{unknown}」を読み取れませんでした。対応している書き出しを選んでください。'
+    return [conversation]
 
 
 def _parse_export(filename, payload):

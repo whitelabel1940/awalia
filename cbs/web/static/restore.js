@@ -1,4 +1,4 @@
-import {api,node,action,field,card} from './ui.js';
+import {api,node,action,field,card,face} from './ui.js';
 import {isResident,desktopHeaders} from './resident.js';
 
 export function restoreEntry(parent,{welcome=false,label}={}){
@@ -46,12 +46,20 @@ export async function restoreForm(section,state){
       if(result.password_required){password.parentElement.hidden=false;password.focus();status.textContent='このファイルのパスワードを入力して、もう一度確かめてください。';return;}
       preview=result;status.textContent='中身を確認しました。';
       confirm.append(node('h4','この記録から戻します'),node('p',`バックアップ: ${new Date(result.created_at).toLocaleString('ja-JP')}`));
-      const partners=node('ul');for(const partner of result.partners)partners.append(node('li',partner.name));confirm.append(partners,node('p',`会話 約${result.turns}件 · ${(result.bytes/1024/1024).toFixed(1)} MB`),node('p','今の記録はバックアップしてから入れ替えます。','warn'));
-      action(confirm,'戻す',async()=>{
+      const partners=node('ul',undefined,'restore-partners');
+      for(const partner of result.partners){
+        const row=node('li',undefined,'restore-partner'),portrait=face(partner.name),info=node('div'),heading=node('div',undefined,'row');
+        if(partner.face){const img=node('img');img.src=partner.face;img.alt='';portrait.append(img);}
+        heading.append(node('span',partner.name));if(partner.selected)heading.append(node('span','いつもの相手','badge'));
+        info.append(heading,node('p',partner.turns?`最初の会話 ${new Date(partner.first_at).toLocaleDateString('ja-JP')} · 会話 ${partner.turns} 件`:'会話なし','small muted'));
+        row.append(portrait,info);partners.append(row);
+      }
+      confirm.append(partners,node('p',`会話 約${result.turns}件 · ${(result.bytes/1024/1024).toFixed(1)} MB`),node('p','今の記録はバックアップしてから入れ替えます。','warn'));
+      action(confirm,'この記録に入れ替える',async()=>{
         try{await api(`/api/restore/previews/${preview.id}/stage`,{});preview=null;await restartGuide(section);}
         catch(error){status.textContent=error.message;}
       },true);
-      action(confirm,'やめる',async()=>{await cancelPreview();confirm.replaceChildren();status.textContent='戻すのをやめました。';});
+      action(confirm,'入れ替えずに閉じる',async()=>{await cancelPreview();confirm.replaceChildren();status.textContent='入れ替えをやめました。今の記録はそのままです。';});
     }catch(error){status.textContent=error.message;}
   },true);
   const confirm=node('div',undefined,'restore-confirm');section.append(confirm);
@@ -60,7 +68,15 @@ export async function restoreForm(section,state){
 export async function showRestoreNotice(){
   const state=await api('/api/restore/notice',{});
   if(!state.created_at)return;
-  const notice=node('aside',`${new Date(state.created_at).toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'})}にバックアップした記録から戻しました。`,'backup-notice');notice.setAttribute('role','status');document.body.append(notice);action(notice,'閉じる',()=>notice.remove());
+  const notice=node('aside',undefined,'backup-notice');notice.setAttribute('role','status');
+  notice.append(node('p',`${new Date(state.created_at).toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'})}にバックアップした記録から戻しました。`));
+  // The old PC's backup folder is not carried over; say so before the user relies on it.
+  if(state.backup_folder){
+    notice.append(node('p','別の場所へのバックアップは引き継いでいません。今は、この PC の中にだけ保存しています。設定の「記録とデータ」で保存先を選び直してください。','warn'),
+      node('p',`前の PC での保存先（参考）: ${state.backup_folder}`,'small muted'));
+    action(notice,'記録とデータを開く',()=>{notice.remove();location.href='/#settings/data';});
+  }
+  document.body.append(notice);action(notice,'閉じる',()=>notice.remove());
 }
 
 export function welcomeRestore(body,buttons){buttons.classList.add('welcome-actions');const section=node('div');body.append(section);action(buttons,'バックアップから始める',async()=>{const state=await api('/api/restore');if(state.trial)section.replaceChildren(node('p','お試しでは記録を戻せません。通常の起動でお試しください。'));else await restoreForm(section,state);});}

@@ -1,4 +1,5 @@
 """Text/choice character creation and append-only author augmentation (M7a)."""
+from cbs.storage import pack_trace
 from cbs.llm.cost import for_step
 import argparse
 from datetime import timedelta
@@ -994,7 +995,7 @@ class Bootstrapper:
                 row = db.execute('INSERT INTO model_versions (character_id, base_version, diff_json, rationale, episode_refs_json, created_at) VALUES (?, ?, ?, ?, ?, ?)',
                                  (cid, model.version, self.client.sanitize_text(json.dumps({'changes': changes}, ensure_ascii=False)), 'Bootstrap v2 author augment', '[]', clock.iso()))
                 db.execute('INSERT INTO bootstrap_augments (character_id, input_json, answers_json, readable_md, model_version_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-                           (cid, self.client.sanitize_text(raw_input or input_data.model_dump_json(by_alias=True)), self.client.sanitize_text(json.dumps(decoded, ensure_ascii=False)),
+                           (cid, pack_trace(self.client.sanitize_text(raw_input or input_data.model_dump_json(by_alias=True))), self.client.sanitize_text(json.dumps(decoded, ensure_ascii=False)),
                             self.client.sanitize_text(readable_answers(input_data, self.questionnaire)), row.lastrowid, clock.iso()))
             return {'domains': sorted(requested), 'version_id': row.lastrowid}
         finally:

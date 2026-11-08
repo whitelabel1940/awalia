@@ -64,6 +64,20 @@ def apply(sample):
     restore.apply_staged(data, chars, p.store.path, config_path=config)
 
 
+def test_restore_leaves_the_old_backup_folder_and_says_so_once(sample, tmp_path):
+    p, data, chars, config, _, _ = sample
+    (data / 'settings.toml').write_text("[character]\nid=\"fixture\"\n[backup]\nfolder='D:\\Sync\\Awalia'\nfrequency=\"daily\"\n", encoding='utf-8')
+    archive = tmp_path / 'with_folder.zip'
+    backup.build_export(p.store.path, chars, data, 'fixture', archive, config_path=config)
+    (data / 'settings.toml').write_text('[character]\nid="fixture"\n', encoding='utf-8')  # this PC: no folder yet
+    work, _ = prepare(sample, archive=archive)
+    restore.stage(work, data)
+    apply(sample)
+    saved = tomllib.loads((data / 'settings.toml').read_text(encoding='utf-8'))
+    assert 'folder' not in saved.get('backup', {}) and 'frequency' not in saved.get('backup', {})
+    assert json.loads((data / 'restore/notice.json').read_text(encoding='utf-8'))['backup_folder'] == 'D:\\Sync\\Awalia'
+
+
 def contents(root):
     return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob('*') if p.is_file()}
 
@@ -297,8 +311,8 @@ def test_api_preview_cancel_stage_owner_restart_and_one_time_notice(sample):
     assert client.post('/api/resident/shutdown', headers=headers).status_code == 202
     apply(sample)
     app.state.resident_draining = False
-    assert client.post('/api/restore/notice').json() == {'created_at': manifest['created_at']}
-    assert client.post('/api/restore/notice').json() == {'created_at': None}
+    assert client.post('/api/restore/notice').json() == {'created_at': manifest['created_at'], 'backup_folder': None}
+    assert client.post('/api/restore/notice').json() == {'created_at': None, 'backup_folder': None}
     app.state.backup.close()
 
 

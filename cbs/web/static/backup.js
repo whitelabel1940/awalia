@@ -35,8 +35,9 @@ export function backupSettings(parent, cfg, {managed=false,onboarding=false,auto
         if(['queued','running'].includes(job.status))await new Promise(resolve=>setTimeout(resolve,800));
       }while(['queued','running'].includes(job.status));
       if(job.status==='failed')throw new Error(job.error||'バックアップに失敗しました。');
-      progress.textContent='バックアップができました。';notice.textContent='バックアップができました。 ';
-      const download=node('a','ダウンロード');download.href=`/api/backup/exports/${encodeURIComponent(id)}/download`;download.download=job.filename;notice.append(download);download.click();
+      // The file is saved once here; the notice carries no second download link.
+      const done=`バックアップができました。${job.filename} をダウンロードしました。`;progress.textContent=done;notice.textContent=done;
+      const download=document.createElement('a');download.href=`/api/backup/exports/${encodeURIComponent(id)}/download`;download.download=job.filename;download.click();
       action(notice,'閉じる',()=>notice.remove());
     }catch(error){progress.textContent=error.message;notice.textContent=error.message;action(notice,'閉じる',()=>notice.remove());}
     finally{watching=null;start.disabled=false;finished(progress.textContent);}
@@ -57,10 +58,16 @@ export function backupSettings(parent, cfg, {managed=false,onboarding=false,auto
     const description=[...section.querySelectorAll('p')].find(p=>p.textContent.startsWith('会話や日記'));section.querySelector('h3').after(description);
     section.insertBefore(node('h4','別の場所にも保存する'),password.parentElement);section.insertBefore(automatic,password.parentElement);
     automatic.prepend(frequency.parentElement);frequency.parentElement.hidden=true;
-    const radios=node('div',undefined,'row');automatic.prepend(radios);saveOnEdit(frequency,value=>api('/api/backup/settings',{frequency:value},'PUT'));radios.after(frequency.parentElement.querySelector('.saved-badge'));
-    radios.classList.add('backup-frequency');const extra=node('div',undefined,'set');automatic.append(extra);extra.append(folderRow);const visibility=()=>{extra.hidden=folderRow.hidden=folder.parentElement.hidden=frequency.value==='off';};
+    // 毎日/毎週 needs a folder: until one is entered, ask for it instead of failing to save. Then both save together.
+    const needFolder=node('p','保存先のフォルダを入れると、この設定を保存します。','small muted');needFolder.setAttribute('role','status');
+    const waiting=()=>frequency.value!=='off'&&!folder.value.trim();
+    const saveBoth=()=>{needFolder.hidden=!waiting();return waiting()?false:api('/api/backup/settings',{frequency:frequency.value,folder:folder.value.trim()},'PUT');};
+    // Both fields compare the same pair, so a save made from one field is not "unchanged" for the other.
+    const pair=()=>({frequency:frequency.value,folder:folder.value.trim()});
+    const radios=node('div',undefined,'row');automatic.prepend(radios);saveOnEdit(frequency,()=>saveBoth(),{read:pair,immediate:true});radios.after(frequency.parentElement.querySelector('.saved-badge'));
+    radios.classList.add('backup-frequency');const extra=node('div',undefined,'set');automatic.append(extra);extra.append(folderRow);folderRow.append(needFolder);const visibility=()=>{extra.hidden=folderRow.hidden=folder.parentElement.hidden=frequency.value==='off';needFolder.hidden=!waiting();};
     for(const [value,title]of [['off','しない'],['daily','毎日'],['weekly','毎週']]){const label=node('label',undefined,'choice'),radio=node('input');radio.type='radio';radio.name='backup-frequency';radio.value=value;radio.checked=frequency.value===value;label.append(radio,node('span',title));radios.append(label);radio.onchange=()=>{frequency.value=value;visibility();frequency.dispatchEvent(new window.Event('change'));};}
-    saveOnEdit(folder,value=>api('/api/backup/settings',{folder:value},'PUT'));visibility();
+    saveOnEdit(folder,()=>saveBoth(),{read:pair,immediate:false});visibility();
     extra.append(node('p',`OneDrive や Google ドライブの同期フォルダを選ぶと、PC が壊れても残ります。新しいものから${cfg.backup.export_keep}つ残します。`,'small muted'),node('p',`最後: ${cfg.backup_status.scheduled_success?new Date(cfg.backup_status.scheduled_success).toLocaleString('ja-JP'):'まだありません'}`,'small muted'));
 
     section.insertBefore(node('h4','今すぐバックアップ'),password.parentElement);section.insertBefore(node('p','今の状態をファイルにしてダウンロードします。','small muted'),password.parentElement);

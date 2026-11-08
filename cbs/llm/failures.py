@@ -30,11 +30,27 @@ class FailureState:
                                (provider, error.kind, error.status_code))
                 self.providers.add(provider)
 
-    def notices(self, display_name):
+    def forget(self, provider):
+        """A new key replaces the one that failed; the next call reports its own health."""
+        with self.lock:
+            with self.store.connect() as db:
+                db.execute('DELETE FROM llm_failures WHERE provider=?', (provider,))
+            self.providers.discard(provider)
+
+    def notices(self, display_name, config=None):
         with self.store.connect() as db:
             rows = db.execute('SELECT provider,kind,status_code FROM llm_failures ORDER BY provider').fetchall()
+        # A provider the current settings no longer use cannot stop the partner (e.g. Gemini
+        # failed before a restored PC was connected to OpenRouter); keep the row, hide the banner.
+        used = providers_in_use(config) if config is not None else None
         return [failure_notice(LLMError('', provider=r['provider'], kind=r['kind'], status_code=r['status_code']),
-                               display_name, banner=True) for r in rows]
+                               display_name, banner=True) for r in rows if used is None or r['provider'] in used]
+
+
+def providers_in_use(config):
+    from cbs.llm import RoutingLLMClient
+    route = RoutingLLMClient(config)
+    return {route._split(model)[0] for model in config.models.model_dump().values() if model}
 
 
 def observed(method):

@@ -1,4 +1,5 @@
 """Serialized inner life and proactive judgments. No keyword/meaning rules."""
+from cbs.storage import dump_trace
 from cbs.llm.cost import for_step
 import json
 import math
@@ -569,7 +570,7 @@ def inner_life(pipeline, *, refresh=True):
         trace['judgment'] = judgment
         with store.connect() as db:
             cursor = db.execute('INSERT INTO inner_life_runs (character_id, created_at, action, reason, status, trace_json) VALUES (?, ?, ?, ?, ?, ?)',
-                                (cid, clock.iso(), decision.action, decision.reason, 'running', json.dumps(pipeline._safe_trace(trace), ensure_ascii=False)))
+                                (cid, clock.iso(), decision.action, decision.reason, 'running', dump_trace(pipeline._safe_trace(trace))))
             run_id = cursor.lastrowid
         if decision.action == 'none':
             status = 'completed'
@@ -699,10 +700,10 @@ def inner_life(pipeline, *, refresh=True):
         trace['budget_after'] = store.autonomy_budget(cid)
         if run_id is None:
             db.execute('INSERT INTO inner_life_runs (character_id, created_at, action, reason, status, trace_json) VALUES (?, ?, ?, ?, ?, ?)',
-                       (cid, clock.iso(), 'none', '判断に失敗', status, json.dumps(pipeline._safe_trace(trace), ensure_ascii=False)))
+                       (cid, clock.iso(), 'none', '判断に失敗', status, dump_trace(pipeline._safe_trace(trace))))
         else:
             db.execute('UPDATE inner_life_runs SET status=?, trace_json=? WHERE id=?',
-                       (status, json.dumps(pipeline._safe_trace(trace), ensure_ascii=False), run_id))
+                       (status, dump_trace(pipeline._safe_trace(trace)), run_id))
         if activity_id and status == 'failed':
             db.execute("UPDATE activities SET status='failed' WHERE id=? AND status='running'", (activity_id,))
     if activity_id and status == 'completed':
@@ -867,7 +868,7 @@ def proactive(pipeline, session_id, mode='opening', *, cancel=None):
     with store.connect() as db:
         db.execute('UPDATE proactive_runs SET speak=?, reason=?, thread_ref=?, source_turn=?, trace_json=?, want_ref=?, why_now=?, early_domain=? WHERE id=?',
                    (result['speak'], result['reason'], result.get('thread_ref'), result.get('turn_id'),
-                    json.dumps(pipeline._safe_trace(trace), ensure_ascii=False), result.get('want_ref'), result.get('why_now', ''),
+                    dump_trace(pipeline._safe_trace(trace)), result.get('want_ref'), result.get('why_now', ''),
                     decision.early_domain if result.get('turn_id') else None, run_id))
     return result
 

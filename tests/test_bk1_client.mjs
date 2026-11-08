@@ -48,8 +48,8 @@ const reopened=backupSettings(parent,{...cfg,backup_status:{...cfg.backup_status
 assert(reopened.querySelector('#backup-export').disabled);
 phase='completed';await exporting;await new Promise(r=>setImmediate(r));
 assert(!reopened.querySelector('#backup-export').disabled);
-assert.equal(downloads,1);assert(document.querySelector('.backup-notice a'));
-assert(document.body.textContent.includes('バックアップができました'));
+assert.equal(downloads,1);assert(!document.querySelector('.backup-notice a'));
+assert(document.querySelector('.backup-notice').textContent.includes('backup.awalia をダウンロードしました'));
 await document.querySelector('.backup-notice button').onclick();assert(!document.querySelector('.backup-notice'));
 for(const theme of ['light','dark']){
   document.documentElement.dataset.theme=theme;window.innerWidth=375;

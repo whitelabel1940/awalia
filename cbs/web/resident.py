@@ -79,6 +79,8 @@ def install_resident(app, token=None, shutdown=None, selected=None):
         if not is_resident(request) or app.state.resident_shutdown is None:
             raise HTTPException(403, '常駐アプリからだけ使えます。')
         app.state.resident_draining = True
+        app.state.shutdown_clock.begin()
+        app.state.shutdown_clock.start('uvicorn')
         # Uvicorn first finishes requests, then runs the normal lifespan drain.
         app.state.resident_shutdown()
         return {'status': 'draining'}

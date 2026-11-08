@@ -1,3 +1,4 @@
+from cbs.storage import dump_trace
 from contextlib import contextmanager
 import json
 from pathlib import Path
@@ -89,6 +90,8 @@ CREATE TABLE IF NOT EXISTS bootstrap_seeds (
 
 class Store(MemoryStore, InterestStore, AutonomyStore, StorageStore, ReadingStore, KnowingStore, ImportStore, RequestStore, DaysStore):
     def __init__(self, path: Path | None = None, memory_config=None, embedding_model=None, *, characters_root=None, current_character_id=None, config_path=None):
+        from threading import Event
+        self.upkeep_stop = Event()
         self.memory_config = memory_config
         from cbs.config import load_config, embedding_model as model_name
         self.embedding_model = embedding_model or model_name(load_config())
@@ -206,12 +209,18 @@ class Store(MemoryStore, InterestStore, AutonomyStore, StorageStore, ReadingStor
 
     @contextmanager
     def connect(self):
+        from cbs.shutdown import checkpoint
+        checkpoint()
         connection = sqlite3.connect(self.path, timeout=30)
-        connection.row_factory = sqlite3.Row
+        from cbs.storage import trace_row, trace_text, pack_trace
+        connection.row_factory = trace_row
+        connection.create_function("trace_text", 1, trace_text, deterministic=True)
+        connection.create_function("trace_pack", 1, pack_trace, deterministic=True)
         connection.execute("PRAGMA foreign_keys = ON")
         try:
             with connection:
                 yield connection
+                checkpoint()  # A stopped upkeep unit rolls back as a whole.
         finally:
             connection.close()
 
@@ -243,7 +252,7 @@ class Store(MemoryStore, InterestStore, AutonomyStore, StorageStore, ReadingStor
             conversation_id = conversation_id or self._conversation(connection, session_id, created_at)
             row = connection.execute(
                 "INSERT INTO turns (session_id, user_text, assistant_text, status, trace_json, created_at, conversation_id, assistant_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (session_id, user_text, assistant_text, status, json.dumps(trace, ensure_ascii=False), created_at, conversation_id, assistant_at or now()),
+                (session_id, user_text, assistant_text, status, dump_trace(trace), created_at, conversation_id, assistant_at or now()),
             )
             turn_id = row.lastrowid
             connection.execute("UPDATE turns SET kind=?, expression=? WHERE id=?", (kind, expression, turn_id))
@@ -263,7 +272,7 @@ class Store(MemoryStore, InterestStore, AutonomyStore, StorageStore, ReadingStor
                                        (turn_id, correction["id"], character_id))
             if "Commit" in trace:
                 trace["Commit"].update(output={"turn_id": turn_id, "status": status, **updates}, latency_ms=round((perf_counter() - started) * 1000, 2))
-                connection.execute("UPDATE turns SET trace_json=? WHERE id=?", (json.dumps(trace, ensure_ascii=False), turn_id))
+                connection.execute("UPDATE turns SET trace_json=? WHERE id=?", (dump_trace(trace), turn_id))
             from cbs.photos import save_photos, save_turn_sources
             save_photos(self, connection, character_id, turn_id, photos or [])
             save_turn_sources(connection, turn_id, trace, photos or [])
@@ -326,7 +335,7 @@ class Store(MemoryStore, InterestStore, AutonomyStore, StorageStore, ReadingStor
             events = stored.get('Timeline', {}).get('events', []) + timeline['events']
             unique = {json.dumps(e, sort_keys=True): e for e in events}
             stored['Timeline'] = {**timeline, 'events': sorted(unique.values(), key=lambda e: e['at_ms'])}
-            connection.execute('UPDATE turns SET trace_json=? WHERE id=?', (json.dumps(stored, ensure_ascii=False), turn_id))
+            connection.execute('UPDATE turns SET trace_json=? WHERE id=?', (dump_trace(stored), turn_id))
 
     def finish_expression(self, turn_id, expression, trace):
         with self.connect() as connection:
@@ -335,7 +344,7 @@ class Store(MemoryStore, InterestStore, AutonomyStore, StorageStore, ReadingStor
             stored = json.loads(row["trace_json"])
             stored.update(trace)
             connection.execute("UPDATE turns SET expression=?, trace_json=? WHERE id=?",
-                               (expression, json.dumps(stored, ensure_ascii=False), turn_id))
+                               (expression, dump_trace(stored), turn_id))
 
     def finish_post_check(self, turn_id, trace, post_check, corrections, *, request_character=None, request_config=None, request_version=0, days_context=None):
         """Persist delayed extraction, correction and trace together, without another turn."""
@@ -361,7 +370,7 @@ class Store(MemoryStore, InterestStore, AutonomyStore, StorageStore, ReadingStor
             if corrections:
                 connection.execute("INSERT OR IGNORE INTO pending_corrections (character_id, source_turn, correction_json, created_at) VALUES (?, ?, ?, ?)",
                                    (turn["character_id"], turn_id, json.dumps(corrections, ensure_ascii=False), now()))
-            connection.execute("UPDATE turns SET trace_json=? WHERE id=?", (json.dumps(stored, ensure_ascii=False), turn_id))
+            connection.execute("UPDATE turns SET trace_json=? WHERE id=?", (dump_trace(stored), turn_id))
 
     def previous_session_datetime(self, session_id):
         session = self.get_session(session_id)

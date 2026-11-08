@@ -229,15 +229,23 @@ const failurePoll=setInterval(()=>{if(ready&&!document.hidden)void refreshFailur
 failurePoll.unref?.();
 window.addEventListener('focus',()=>{if(ready){void refreshFailures();void refreshNews();}});
 const newsPoll=setInterval(()=>{if(ready&&!document.hidden)void refreshNews();},60000);newsPoll.unref?.();
+// The one-time restore notice waits for the chat screen: after a restore without keys the
+// 「はじめに」 setup comes first, and its "open settings" link would not lead anywhere there.
+let restoreNoticePending=true;
+async function restoreNoticeOnTalk(){
+  const tab=(location.hash.slice(1)||'talk').split('/')[0];
+  if(!restoreNoticePending||!ready||['note','settings','news'].includes(tab))return;
+  restoreNoticePending=false;
+  const {showRestoreNotice}=await import('./restore.js');await showRestoreNotice();
+}
+window.addEventListener('hashchange',()=>{void restoreNoticeOnTalk().catch(()=>{});});
 (async()=>{try{
-  const {showRestoreNotice}=await import('./restore.js');
-  void showRestoreNotice().catch(()=>{});
   partner=(await api('/api/partner')).partner;
   if(!partner&&partnerId){selectPartner('');partner=(await api('/api/partner')).partner;}
   if(!partner){selectPartner('');location.replace('/wizard'+location.search);return;}
   if(!location.hash.startsWith('#settings')&&await connectionGate($('screen'))){shell('settings',partner.name);$('composer').hidden=true;return;}
   selectPartner(partner.id);look=await api('/api/look');$('message').placeholder=`${partner.name}に話しかける…`;
-  await loadConversation();ready=true;await view();await markResidentReady();
+  await loadConversation();ready=true;await view();void restoreNoticeOnTalk().catch(()=>{});await markResidentReady();
   await startResident({opening,settings:()=>api('/api/settings'),busy:()=>busy||mic.active||!!openingWait,
     habit:()=>api('/api/proactive/habit',{session_id:session.id,after_turn_id:Math.max(0,...history.map(t=>t.id))}),
     idle:()=>api('/api/proactive/idle',{session_id:session.id,after_turn_id:Math.max(0,...history.map(t=>t.id))}),

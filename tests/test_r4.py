@@ -5,13 +5,14 @@ from pathlib import Path
 import zipfile
 
 import re
+import sys
 
 import pytest
 
 from release import build as r4
 
 EXTERNAL_STEPS = {name: getattr(r4, name) for name in
-                  ("download_python", "install_dependencies", "run_audits", "cargo_metadata", "build_tauri")}
+                  ("download_python", "install_dependencies", "run_audits", "audit_runtime", "cargo_metadata", "build_tauri")}
 
 
 @pytest.fixture(autouse=True)
@@ -20,7 +21,8 @@ def forbid_external_work(monkeypatch):
     monkeypatch.setenv("TAURI_SIGNING_PRIVATE_KEY_PASSWORD", "")
     def forbidden(*args, **kwargs):
         raise AssertionError("Release tests must not use the network or real build tools")
-    for name in ("download_python", "install_dependencies", "run_audits", "cargo_metadata", "build_tauri"):
+    for name in ("download_python", "install_dependencies", "run_audits", "cargo_metadata", "build_tauri",
+                 "verify_release", "estimate_signatures", "confirm", "audit_runtime"):
         monkeypatch.setattr(r4, name, forbidden)
     monkeypatch.setattr(r4.subprocess, "run", forbidden)
     monkeypatch.setattr(r4.urllib.request, "urlopen", forbidden)
@@ -164,15 +166,23 @@ def test_stubbed_complete_build(source, monkeypatch, capsys, skip_audit):
     monkeypatch.setattr(r4, "run_audits", lambda root: calls.append("audits"))
     monkeypatch.setattr(r4, "cargo_metadata", lambda root: {"packages": [{"name": "fixture-rust", "version": "1.0", "license": "Apache-2.0"}]})
     monkeypatch.setattr(r4, "build_tauri", tauri)
+    monkeypatch.setattr(r4, "verify_release", lambda root, installer, *, signed: calls.append(("verify", signed)))
+    def runtime_audit(root, site):
+        assert not (site / "bin").exists()
+        calls.append("runtime audit")
+    monkeypatch.setattr(r4, "audit_runtime", runtime_audit)
     # Rebuilding replaces stale stage/out content.
     for name in ("stage", "out"):
         directory = source / ".tmp/release" / name
         directory.mkdir(parents=True)
         (directory / "stale").write_text("old", encoding="utf-8")
     out = r4.build(source, skip_audit=skip_audit)
-    assert calls == ([] if skip_audit else ["audits"]) + ["download", "pip", "tauri"]
+    assert calls == (([] if skip_audit else ["audits"]) + ["download", "pip"]
+                     + ([] if skip_audit else ["runtime audit"]) + ["tauri", ("verify", False)])
     assert not (out / "stale").exists()
     assert (out / "fixture-setup.exe").read_bytes() == b"fixture-installer"
+    # The site's fixed download name is the same bytes as the versioned installer.
+    assert (out / r4.FIXED_INSTALLER).read_bytes() == b"fixture-installer"
     notice = (source / ".tmp/release/stage/app/THIRD_PARTY_NOTICES.txt").read_text(encoding="utf-8")
     for value in ("Python 3.14.3", "Python license fixture", "fixture 1.2", "MIT", "Permission fixture", "fixture-rust 1.0", "Apache-2.0"):
         assert value in notice
@@ -181,6 +191,7 @@ def test_stubbed_complete_build(source, monkeypatch, capsys, skip_audit):
     assert "17 bytes" in output
     # Synthetic executable fixtures are never left for someone to launch.
     (out / "fixture-setup.exe").unlink()
+    (out / r4.FIXED_INSTALLER).unlink()
     (source / ".tmp/release/target/release/bundle/nsis/fixture-setup.exe").unlink()
     for name in ("python.exe", "pythonw.exe"):
         (source / ".tmp/release/stage/runtime" / name).unlink()
@@ -192,16 +203,96 @@ def test_release_config_and_actual_include():
     assert bundle["active"] and bundle["targets"] == ["nsis"]
     nsis = bundle["windows"]["nsis"]
     assert nsis == {"installMode": "currentUser", "languages": ["Japanese"], "startMenuFolder": "Awalia",
+                    "installerIcon": "icons/icon.ico", "uninstallerIcon": "icons/icon.ico",
+                    "customLanguageFiles": {"Japanese": "../../release/nsis/Japanese.nsh"},
                     "installerHooks": "../../release/nsis-hooks.nsh"}
+    # The installer (and its uninstaller) carry the app's own icon, not the NSIS default.
+    assert (r4.ROOT / "desktop/src-tauri" / nsis["installerIcon"]).is_file()
     hook = (r4.ROOT / "desktop/src-tauri" / nsis["installerHooks"]).read_text(encoding="utf-8")
     assert 'StrCpy $INSTDIR "$LOCALAPPDATA\\Programs\\Awalia"' in hook
     assert "MUI_CUSTOMFUNCTION_GUIINIT" in hook and "NSIS_HOOK_PREINSTALL" in hook
-    assert "UNINSTALL" not in hook
+    # R12a: only three fixed trees and the empty install root may be removed.
+    assert re.findall(r'^\s*RMDir\s+(.+)$', hook, re.MULTILINE) == [
+        r'/r "$INSTDIR\app"', r'/r "$INSTDIR\runtime"', r'"$INSTDIR"',
+        r'/r "$LOCALAPPDATA\Awalia"',
+    ]
     for source, dest in bundle["resources"].items():
         assert (r4.ROOT / "desktop/src-tauri" / source).resolve() == (r4.ROOT / ".tmp/release/stage" / dest).resolve()
     dev = json.loads((r4.ROOT / "desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
     assert dev["bundle"]["active"] is False
     assert set((r4.ROOT / "release/include.txt").read_text(encoding="utf-8").splitlines()) == {"cbs/", "bootstrap/", "onboarding/", "config.toml", "pyproject.toml"}
+
+
+def test_uninstall_cleanup_guards_and_install_directory_hook():
+    hook = (r4.ROOT / "release/nsis-hooks.nsh").read_text(encoding="utf-8")
+    # Check the complete executable statements: no alternate deletion, checkbox
+    # initialization, silent fallback, or install-time cleanup may slip in.
+    statements = [line.strip() for line in hook.splitlines()
+                  if line.strip() and not line.lstrip().startswith(";")]
+    assert statements == [
+        "!define MUI_CUSTOMFUNCTION_GUIINIT AwaliaDefaultInstallDirectory",
+        "Function AwaliaDefaultInstallDirectory",
+        'StrCmp $INSTDIR "$LOCALAPPDATA\\Awalia" 0 done',
+        'StrCpy $INSTDIR "$LOCALAPPDATA\\Programs\\Awalia"',
+        "done:",
+        "FunctionEnd",
+        "!macro NSIS_HOOK_PREINSTALL",
+        "Call AwaliaDefaultInstallDirectory",
+        "SetOutPath $INSTDIR",
+        "!macroend",
+        "Var AwaliaOwnsApp",
+        "Var AwaliaOwnsRuntime",
+        "!macro NSIS_HOOK_PREUNINSTALL",
+        "StrCpy $AwaliaOwnsApp 0",
+        "StrCpy $AwaliaOwnsRuntime 0",
+        'IfFileExists "$INSTDIR\\app\\cbs\\web\\__main__.py" 0 +2',
+        "StrCpy $AwaliaOwnsApp 1",
+        'IfFileExists "$INSTDIR\\runtime\\python314._pth" 0 +2',
+        "StrCpy $AwaliaOwnsRuntime 1",
+        "!macroend",
+        "!macro NSIS_HOOK_POSTUNINSTALL",
+        "${If} $UpdateMode <> 1",
+        "${If} $AwaliaOwnsApp = 1",
+        'RMDir /r "$INSTDIR\\app"',
+        "${EndIf}",
+        "${If} $AwaliaOwnsRuntime = 1",
+        'RMDir /r "$INSTDIR\\runtime"',
+        "${EndIf}",
+        'RMDir "$INSTDIR"',
+        "${If} $DeleteAppDataCheckboxState = 1",
+        "SetShellVarContext current",
+        'RMDir /r "$LOCALAPPDATA\\Awalia"',
+        "${EndIf}",
+        "${EndIf}",
+        "!macroend",
+    ]
+
+
+def test_japanese_custom_language_is_complete_and_changes_delete_label():
+    config = json.loads((r4.ROOT / "release/tauri.release.json").read_text(encoding="utf-8"))
+    nsis = config["bundle"]["windows"]["nsis"]
+    assert list(nsis["customLanguageFiles"]) == nsis["languages"] == ["Japanese"]
+    language = (r4.ROOT / "desktop/src-tauri" / nsis["customLanguageFiles"]["Japanese"]).read_text(encoding="utf-8")
+    lines = [line for line in language.splitlines() if line.strip() and not line.startswith(";")]
+    matches = [re.fullmatch(r'LangString (\w+) \$\{LANG_JAPANESE\} "(.+)"', line) for line in lines]
+    assert all(matches)
+    strings = {match[1]: match[2] for match in matches}
+    assert len(strings) == len(lines)  # No duplicate definitions.
+    # Complete message set in tauri-bundler 2.10.3; custom files replace, not
+    # overlay, the built-in language. Review this list when upgrading Tauri.
+    assert set(strings) == {
+        "addOrReinstall", "alreadyInstalled", "alreadyInstalledLong", "appRunning",
+        "appRunningOkKill", "chooseMaintenanceOption", "choowHowToInstall", "createDesktop",
+        "dontUninstall", "dontUninstallDowngrade", "failedToKillApp", "installingWebview2",
+        "newerVersionInstalled", "older", "olderOrUnknownVersionInstalled", "silentDowngrades",
+        "unableToUninstall", "uninstallApp", "uninstallBeforeInstalling", "unknown",
+        "webview2AbortError", "webview2DownloadError", "webview2DownloadSuccess",
+        "webview2Downloading", "webview2InstallError", "webview2InstallSuccess", "deleteAppData",
+    }
+    assert strings["deleteAppData"] == "会話の記録・設定・API キーもすべて削除する（元に戻せません）"
+    # These tokens are replaced at runtime by utils.nsh, not Handlebars.
+    for key in ("appRunning", "appRunningOkKill", "failedToKillApp"):
+        assert "{{product_name}}" in strings[key]
 
 
 def test_reset_refuses_outside_release(tmp_path):
@@ -226,9 +317,14 @@ def test_external_tool_commands_are_pinned_and_fail_closed(source, monkeypatch):
     for flag, value in (("--platform", "win_amd64"), ("--python-version", "3.14"), ("--abi", "cp314")):
         assert pip[pip.index(flag) + 1] == value
     assert pip[-1] == str(source / "requirements-local-embedding.lock")
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(source / "ca.pem"))
     EXTERNAL_STEPS["run_audits"](source)
-    assert commands[-2][0][1:4] == ["-m", "pip_audit", "--require-hashes"]
+    # pip-audit is pinned and runs from uv's isolated environment, not the build venv.
+    assert commands[-2][0][:3] == ["uvx", "--system-certs", "pip-audit==2.10.1"]
+    assert "--require-hashes" in commands[-2][0] and sys.executable not in commands[-2][0]
     assert commands[-1][0] == ["cargo", "audit"]
+    EXTERNAL_STEPS["audit_runtime"](source, source / "site")
+    assert commands[-1][0][-2:] == ["--path", str(source / "site")]
     assert EXTERNAL_STEPS["cargo_metadata"](source) == {"packages": []}
     assert "--locked" in commands[-1][0]
     EXTERNAL_STEPS["build_tauri"](source)

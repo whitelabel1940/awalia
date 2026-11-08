@@ -1,4 +1,5 @@
 """Conversation boundaries and memory persistence; no semantic decisions."""
+from cbs.storage import dump_trace
 from cbs.storage import pack_vector, unpack_vector
 import json
 
@@ -217,7 +218,7 @@ class MemoryStore:
             self.save_observations(connection, character_id, job, output.observations, turns, trace.get('knowing_revision', 0))
             from cbs.photos import save_job_sources
             save_job_sources(connection, job, turns, trace)
-            connection.execute("UPDATE memory_jobs SET status='completed', trace_json=? WHERE id=?", (json.dumps(trace, ensure_ascii=False), job["id"]))
+            connection.execute("UPDATE memory_jobs SET status='completed', trace_json=? WHERE id=?", (dump_trace(trace), job["id"]))
             connection.execute("UPDATE conversations SET status='episodized' WHERE id=? AND status='closed' AND NOT EXISTS "
                                "(SELECT 1 FROM memory_jobs WHERE conversation_id=? AND status<>'completed')", (job["conversation_id"], job["conversation_id"]))
             return ids
@@ -243,7 +244,7 @@ class MemoryStore:
             connection.execute("INSERT OR IGNORE INTO episode_links (source_episode, target_episode, relation, reason, created_at) VALUES (?, ?, ?, ?, ?)",
                                (source,target,link.relation,link.reason,clock.iso()))
         connection.execute("INSERT OR REPLACE INTO episode_link_runs VALUES (?, ?, ?)",
-                           (episode_id,status,json.dumps(trace,ensure_ascii=False)))
+                           (episode_id,status,dump_trace(trace)))
 
     def list_monthly_digests(self, character_id):
         with self.connect() as connection:

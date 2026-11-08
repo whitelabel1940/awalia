@@ -127,7 +127,7 @@ def test_idle_preserves_stale_turn_guard(pipeline, monkeypatch):
 def test_check_db_cli_isolates_all_paths_and_uses_graceful_server(tmp_path, monkeypatch):
     from cbs.web import __main__ as main
     captured = {}
-    app = SimpleNamespace(state=SimpleNamespace())
+    app = SimpleNamespace(state=SimpleNamespace(shutdown_clock=SimpleNamespace(started=None)))
     monkeypatch.setattr(sys, 'argv', ['cbs.web', '--db', str(tmp_path / 'check.sqlite3'), '--port', '18765'])
     monkeypatch.setattr(main, 'create_app', lambda **kwargs: captured.update(kwargs) or app)
     class Server:
@@ -135,7 +135,7 @@ def test_check_db_cli_isolates_all_paths_and_uses_graceful_server(tmp_path, monk
             assert config.host == '127.0.0.1'
             assert config.port == 18765
             assert config.access_log is False
-            assert config.timeout_graceful_shutdown == 15
+            assert config.timeout_graceful_shutdown == 5
             self.should_exit = False
         def run(self):
             app.state.resident_shutdown()

@@ -4,10 +4,13 @@ No Store/provider is constructed here. All replacements happen before config/DB 
 """
 from contextlib import closing
 import hashlib
+import base64
+from io import BytesIO
 import json
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import tomllib
 from uuid import uuid4
 import zipfile
@@ -110,6 +113,9 @@ def inspect_content(content, manifest):
         if not backup.recorded_characters(db) <= set(ids):
             raise ValueError('missing partner')
         turns = db.execute('SELECT count(*) FROM turns').fetchone()[0]
+        partner_counts = {row[0]: row[1:] for row in db.execute(
+            'SELECT s.character_id,count(t.id),CASE WHEN count(t.id)>0 THEN min(s.created_at) END FROM sessions s '
+            'LEFT JOIN turns t ON t.session_id=s.id GROUP BY s.character_id')}
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         photos = {r[0] for r in db.execute('SELECT id FROM photos')} if 'photos' in tables else set()
         if {f'data/photos/{ident}.jpg' for ident in photos} != {n for n in names if n.startswith('data/photos/')}:
@@ -121,16 +127,39 @@ def inspect_content(content, manifest):
         character = load_character(cid, root=content / 'characters')
         if character.model.character_id != cid:
             raise ValueError('mismatched partner ID')
-        partners.append({'id': cid, 'name': character.model.display_name})
+        count, first_at = partner_counts.get(cid, (0, None))
+        partners.append({'id': cid, 'name': character.model.display_name, 'turns': count,
+                         'first_at': first_at, 'face': preview_face(content / 'characters' / cid / 'look')})
     for name in ('config.toml', 'data/settings.toml'):
         if name in names:
             value = tomllib.loads((content / name).read_text(encoding='utf-8'))
             if backup.clean_settings(value) != value:
                 raise ValueError('credentials in settings')
     from cbs.config import ROOT
-    restored_settings(content, tomllib.loads((ROOT / 'config.toml').read_text(encoding='utf-8')), {}, ids)
+    settings = restored_settings(content, tomllib.loads((ROOT / 'config.toml').read_text(encoding='utf-8')), {}, ids)
+    for partner in partners:
+        partner['selected'] = partner['id'] == settings.get('character', {}).get('id')
+    # The partner that opens after the restore first, then the most talked-with.
+    partners.sort(key=lambda p: (not p['selected'], -p['turns']))
     return {'created_at': manifest['created_at'], 'partners': partners, 'turns': turns,
             'bytes': sum(v['size'] for v in names.values())}
+
+
+def preview_face(directory):
+    from cbs.look import face_path
+    from PIL import Image, UnidentifiedImageError
+    path = face_path(directory)
+    if path is None:
+        return None
+    try:
+        with Image.open(path) as source:
+            source.thumbnail((96, 96))
+            image = source.convert('RGBA')
+            output = BytesIO()
+            image.save(output, format='PNG')
+        return 'data:image/png;base64,' + base64.b64encode(output.getvalue()).decode('ascii')
+    except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
+        return None
 
 
 def preview(upload, directory, password, config):
@@ -191,13 +220,55 @@ def keep_secrets(current, restored, *, references=()):
     return result
 
 
+def changed_settings(value, base):
+    """The part of value that differs from base (tables compared key by key, lists as a whole)."""
+    if not isinstance(value, dict) or not isinstance(base, dict):
+        return value
+    result = {}
+    for key, item in value.items():
+        if key not in base:
+            result[key] = item
+        elif isinstance(item, dict) and isinstance(base[key], dict):
+            child = changed_settings(item, base[key])
+            if child:
+                result[key] = child
+        elif item != base[key]:
+            result[key] = item
+    return result
+
+
+def exported_settings(content):
+    """The old PC's effective settings: (its config.toml, that overlaid with its settings.toml)."""
+    from cbs.config import overlay
+    read = lambda name: tomllib.loads((content / name).read_text(encoding='utf-8')) if (content / name).exists() else {}
+    exported = read('config.toml')
+    return exported, overlay(exported, read('data/settings.toml'))
+
+
+def scheduled_folder(settings):
+    """The folder of an active "別の場所" backup, or ''."""
+    value = settings.get('backup', {})
+    return value.get('folder') or '' if value.get('frequency', 'off') != 'off' else ''
+
+
 def restored_settings(content, base, current, ids):
     from cbs.config import Config, overlay
-    restored = {}
-    for name in ('config.toml', 'data/settings.toml'):
-        if (content / name).exists():
-            restored = overlay(restored, tomllib.loads((content / name).read_text(encoding='utf-8')))
+    exported, merged = exported_settings(content)
+    # Keep only what the user chose on the old PC. Its distribution defaults (and values equal to
+    # this PC's defaults) are left out, so later updates of config.toml still reach a restored user.
+    restored = changed_settings(changed_settings(merged, exported), base)
+    # A backup folder belongs to the old PC: on another PC it may not exist, and on the same PC two
+    # installs would share it (and prune each other's copies). This PC keeps its own choice.
+    for key in ('folder', 'frequency'):
+        restored.get('backup', {}).pop(key, None)
+    if restored.get('backup') == {}:
+        del restored['backup']
+    if merged.get('character', {}).get('id'):
+        restored.setdefault('character', {})['id'] = merged['character']['id']
     settings = keep_secrets(overlay(base, current), restored)
+    own = {key: current['backup'][key] for key in ('folder', 'frequency') if key in current.get('backup', {})}
+    if own:
+        settings.setdefault('backup', {}).update(own)
     if 'character' not in settings and ids:
         settings['character'] = {'id': ids[0]}
     if ids and settings['character'].get('id') not in ids:
@@ -256,6 +327,17 @@ def rollback(journal, journal_path):
     journal_path.unlink()
 
 
+def compact_relocated_database(journal, db_path):
+    # The rename journal is still intact: before commit it must support rollback;
+    # after commit it also makes compaction of the retained old DB resumable.
+    from cbs.storage import rewrite_traces, vacuum_traces
+    for source, destination in journal['moves']:
+        if Path(source) == db_path.absolute() and Path(destination).exists():
+            with closing(sqlite3.connect(destination)) as db:
+                rewrite_traces(db, backup=True)
+                vacuum_traces(db)
+
+
 def apply_staged(data_dir, characters_root, db_path, *, config_path):
     """Startup transaction: rename journal + reverse moves on any failure/interruption.
 
@@ -276,8 +358,9 @@ def apply_staged(data_dir, characters_root, db_path, *, config_path):
         if journal_path.exists():
             journal = json.loads(journal_path.read_text(encoding='utf-8'))
             if journal.get('committed'):
+                compact_relocated_database(journal, db_path)
                 # The durable commit marker doubles as the one-time notice.
-                write_json(root / 'notice.json', {'created_at': journal['created_at']})
+                write_json(root / 'notice.json', {'created_at': journal['created_at'], 'backup_folder': journal.get('backup_folder')})
                 if staged.exists():
                     backup.retry_locked(shutil.rmtree, staged)
                 journal_path.unlink()
@@ -300,8 +383,12 @@ def apply_staged(data_dir, characters_root, db_path, *, config_path):
         base = tomllib.loads(config_path.read_text(encoding='utf-8'))
         current = tomllib.loads((data_dir / 'settings.toml').read_text(encoding='utf-8')) if (data_dir / 'settings.toml').exists() else {}
         settings = restored_settings(content, base, current, manifest['characters'])
+        from cbs.config import overlay
+        # Tell the user once when the old PC backed up elsewhere and this PC does not (yet).
+        left = scheduled_folder(exported_settings(content)[1])
+        left = left if left and not scheduled_folder(overlay(base, settings)) else None
         # The receiving PC's distribution config stays put. Its effective overrides
-        # contain the exported config + settings and the receiving PC's secrets.
+        # contain the old PC's own choices and the receiving PC's secrets.
         prepared = staged / 'settings.toml'
         prepared.write_bytes(backup.toml_bytes(settings))
         partner_settings = prepare_partner_settings(content, staged, characters_root, manifest['files'])
@@ -314,7 +401,7 @@ def apply_staged(data_dir, characters_root, db_path, *, config_path):
                 raise ValueError('incompatible destination shape')
         old = data_dir / 'backup' / f'restore-{clock.now():%Y%m%dT%H%M%S%f}-{uuid4().hex}'
         old.mkdir(parents=True)
-        journal = {'moves': [], 'created_at': manifest['created_at'], 'committed': False}
+        journal = {'moves': [], 'created_at': manifest['created_at'], 'backup_folder': left, 'committed': False}
         write_json(journal_path, journal)
 
         def relocate(source, target):
@@ -364,7 +451,8 @@ def apply_staged(data_dir, characters_root, db_path, *, config_path):
             journal['committed'] = False
             rollback(journal, journal_path)
             raise
-        write_json(root / 'notice.json', {'created_at': manifest['created_at']})
+        compact_relocated_database(journal, db_path)
+        write_json(root / 'notice.json', {'created_at': manifest['created_at'], 'backup_folder': left})
         backup.retry_locked(shutil.rmtree, staged)
         journal_path.unlink()
     except Exception:

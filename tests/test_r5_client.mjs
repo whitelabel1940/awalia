@@ -15,7 +15,7 @@ globalThis.fetch=async()=>new Response(JSON.stringify(data));
 const screen=document.getElementById('screen');
 await newsScreen(screen);
 assert.equal(screen.querySelector('button').textContent,'更新して再起動');
-assert.equal(screen.querySelector('h3').textContent,'新しい版 0.1.1');
+assert.equal(screen.querySelector('h3').textContent,'バージョンアップのお知らせ');
 assert(screen.textContent.includes('<b>native</b>'));assert(!screen.querySelector('b'));
 assert(document.querySelector('[data-news-link] .badge'));
 await screen.querySelector('button').onclick();assert.equal(installs,0);
@@ -31,7 +31,7 @@ assert(!screen.querySelector('button'));assert(!document.querySelector('.badge')
 data={...data,has_update:true,latest:{version:'0.1.2',notes:'news',url:'https://example.com/download'}};
 await refreshNews();assert(document.querySelector('.badge'));
 native={...native,availableVersion:'0.1.1'};screen.replaceChildren();await newsScreen(screen);
-assert.equal(screen.querySelector('h3').textContent,'新しい版 0.1.2');
+assert.equal(screen.querySelector('h3').textContent,'バージョンアップのお知らせ');
 assert(screen.textContent.includes('このボタンで 0.1.1 に更新します。'));
 native={...native,availableVersion:null};
 screen.replaceChildren();await newsScreen(screen);assert(!screen.querySelector('button'));assert.equal(screen.querySelector('a').textContent,'ダウンロード');

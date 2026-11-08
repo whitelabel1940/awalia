@@ -1,11 +1,12 @@
 import {api,node,action,icon} from './ui.js';
+import {refreshNews} from './news.js';
 
 export function notice(parent,text='',kind='success'){const e=node('p');parent.append(e);e.update=(text,kind='success')=>{e.className=kind==='error'?'error onboarding-notice':kind==='success'?'onboarding-notice success':'status';e.setAttribute('role',kind==='error'?'alert':'status');e.replaceChildren(...(text&&['success','error'].includes(kind)?[icon(kind)]:[]),node('span',text));e.hidden=!text;return e;};return e.update(text,kind);}
 export const policyDescriptions={may_elaborate:'書いた内容と矛盾しない範囲で、細かいところを補って話します。',keep:'書いた以上のことは足さず、書いた通りに扱います。'};
 export const chapters=['AI','パートナー','くわしく','見た目','声','声で入力','バックアップ'];
 // The partner chapter's pages; the AI chapter shows its first one, so both count from here.
 export function partnerRoute(bringing='none'){return ['partner','bringing',...(['text','both'].includes(bringing)?['profile']:[]),...(['log','both'].includes(bringing)?['import']:[]),'world','partner-fields','user-fields','summary'];}
-export function onboardingChrome(){document.body.classList.add('onboarding');for(const id of ['menu','heading','subtitle','steps','counter']){const e=document.getElementById(id);if(e)e.hidden=true;}}
+export function onboardingChrome(){document.body.classList.add('onboarding');void refreshNews();for(const id of ['menu','heading','subtitle','steps','counter']){const e=document.getElementById(id);if(e)e.hidden=true;}}
 let choiceId=0;
 export function choiceCards(parent,title,options,value,change,{recommended=options[0]?.[0],label=''}={}){
   const box=node('fieldset',undefined,'qcard');if(title)box.append(node('legend',title));else if(label)box.setAttribute('aria-label',label);const name=`onboarding_${++choiceId}`;

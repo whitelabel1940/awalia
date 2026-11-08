@@ -1,4 +1,5 @@
 """Steward owns meaning; this module validates references and applies P4 rules."""
+from cbs.storage import dump_trace
 from cbs.llm.cost import for_step
 from concurrent.futures import ThreadPoolExecutor, wait
 from contextvars import copy_context
@@ -59,13 +60,14 @@ _queue_lock = Lock()
 
 
 def submit(store, function, *args):
+    from cbs.shutdown import run_upkeep
     key = str(store.path.resolve()).casefold()
     with _queue_lock:
         if key not in _queues:
             _queues[key] = (ThreadPoolExecutor(max_workers=1, thread_name_prefix="steward"), [])
         executor, futures = _queues[key]
         futures[:] = [future for future in futures if not future.done()]
-        future = executor.submit(copy_context().run, function, *args)
+        future = executor.submit(copy_context().run, run_upkeep, store, function, *args)
         futures.append(future)
         return future
 
@@ -206,12 +208,12 @@ def apply_output(store, character, turn_id, output, input_context=None, llm_trac
 
 def _save_run(connection, turn_id, context, output, application, trace):
     connection.execute("INSERT INTO steward_runs (source_turn, input_json, output_json, application_json, created_at) VALUES (?, ?, ?, ?, ?)",
-                       (turn_id, json.dumps(context, ensure_ascii=False), json.dumps(output, ensure_ascii=False), json.dumps(application, ensure_ascii=False), now()))
+                       (turn_id, dump_trace(context), json.dumps(output, ensure_ascii=False), json.dumps(application, ensure_ascii=False), now()))
     turn_trace = json.loads(connection.execute("SELECT trace_json FROM turns WHERE id=?", (turn_id,)).fetchone()[0])
     turn_trace["Steward"] = {**trace, "state": "completed" if not application.get("error") else "failed", "output": application}
     if application.get("error"):
         turn_trace["Steward"]["warnings"] = [application["error"]]
-    connection.execute("UPDATE turns SET trace_json=? WHERE id=?", (json.dumps(turn_trace, ensure_ascii=False), turn_id))
+    connection.execute("UPDATE turns SET trace_json=? WHERE id=?", (dump_trace(turn_trace), turn_id))
 
 
 def run_steward(pipeline, turn_id, judge):
@@ -251,6 +253,6 @@ def run_steward(pipeline, turn_id, judge):
         with pipeline.store.connect() as connection:
             saved = json.loads(connection.execute('SELECT trace_json FROM turns WHERE id=?', (turn_id,)).fetchone()[0])
             saved['NoteScenes'] = {'output': display_trace}
-            connection.execute('UPDATE turns SET trace_json=? WHERE id=?', (json.dumps(saved, ensure_ascii=False), turn_id))
+            connection.execute('UPDATE turns SET trace_json=? WHERE id=?', (dump_trace(saved), turn_id))
     except Exception:
         pass  # Original records remain available for the next daily retry.

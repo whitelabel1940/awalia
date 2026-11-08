@@ -3,6 +3,7 @@ from contextlib import contextmanager
 import json
 
 from cbs import clock
+from cbs.storage import compact_trace, dump_trace
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS import_batches (
@@ -57,7 +58,7 @@ class ImportStore:
                 def row(alias):
                     return 'json_object(' + ','.join(f"'{c['name']}'," +
                         (f"CASE WHEN {alias}.{c['name']} IS NULL THEN NULL ELSE hex({alias}.{c['name']}) END"
-                         if c['name'] == 'embedding' else f'{alias}.{c["name"]}') for c in cols) + ')'
+                         if c['name'] == 'embedding' else (f'trace_text({alias}.{c["name"]})' if c['name'] == 'trace_json' else f'{alias}.{c["name"]}')) for c in cols) + ')'
                 for op in ('INSERT', 'UPDATE'):
                     name = f'im_{table}_{op}'
                     names.append(name)
@@ -144,8 +145,15 @@ class ImportStore:
                         if col in primary or value == after[col]:
                             continue
                         actual = current[col].hex().upper() if isinstance(current[col],bytes) else current[col]
-                        if actual == after[col]:
+                        if col == 'trace_json':
+                            actual = compact_trace(json.loads(actual))
+                            expected = compact_trace(json.loads(after[col]))
+                        else:
+                            expected = after[col]
+                        if actual == expected:
                             restored = bytes.fromhex(value) if col == 'embedding' and value is not None else value
+                            if col == 'trace_json':
+                                restored = dump_trace(json.loads(restored))
                             db.execute(f'UPDATE {table} SET {col}=? WHERE {where}', [restored,*keys])
                         for later in db.execute('SELECT * FROM import_changes WHERE id>? AND batch_id<>? AND table_name=? AND before_json IS NOT NULL', (change['id'],batch_id,table)).fetchall():
                             old = json.loads(later['before_json'])

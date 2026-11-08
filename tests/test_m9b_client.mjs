@@ -14,7 +14,7 @@ const dom=new JSDOM(html,{url:`https://unit.invalid/${isWizard?'wizard':''}${mod
 for(const key of ['window','document','location','localStorage','history','sessionStorage'])globalThis[key]=dom.window[key];
 localStorage.setItem('cbs.accent','tokiwa');
 dom.window.scrollTo=()=>{};
-const calls=[],cfg={models:{actor:'gemini/actor',judge:'openai/judge',steward:'gemini/steward',embedding:'gemini/embed'},llm:{providers:{openai:{api:'responses',base_url:null}}},keys:{gemini:'unset',openai:'set'},warnings:[],reindex_required:false,pipeline:{post_check:'sync'},autonomy:{inner_life:true,inner_life_interval_hours:4,research:true,research_daily_max:3,quiet_start_hour:0,quiet_end_hour:8,opening:'normal'}};
+const calls=[],cfg={developer:true,models:{actor:'gemini/actor',judge:'openai/judge',steward:'gemini/steward',embedding:'gemini/embed'},llm:{providers:{openai:{api:'responses',base_url:null}}},keys:{gemini:'unset',openai:'set'},warnings:[],reindex_required:false,pipeline:{post_check:'sync'},autonomy:{inner_life:true,inner_life_interval_hours:4,research:true,research_daily_max:3,quiet_start_hour:0,quiet_end_hour:8,opening:'normal'}};
 if(mode.startsWith('k2_')){
   cfg.advanced_models=structuredClone(cfg.models);cfg.llm.mode='simple';cfg.ai_ready=false;
   cfg.models={actor:'openrouter/google/gemini-3.8-flash',judge:'openrouter/openai/gpt-6-luna',steward:'openrouter/google/gemini-3.8-flash',embedding:'openrouter/google/gemini-embedding-2',research:'openrouter/google/gemini-3.8-flash'};
@@ -175,7 +175,7 @@ if(mode==='m8c_inner'){
   assert.deepEqual([...document.querySelectorAll('.settings-shelves button')].map(e=>e.textContent),['いまの設定','話し方と関係','話しかけと過ごし方','見た目と声','画面と入力','AI と費用','記録とデータ']);assert.equal(!!document.querySelector('a[href*="augment="]'),mode!=='settings_empty');assert(document.getElementById('partner-requests').textContent.includes('「AI なの？」への答え方'));
   input('「AI なの？」への答え方','honest');input('あなたの名前（任意）','葵');await click('話し方とお願いを保存');const saved=calls.find(c=>c.route==='/api/persona'&&c.method==='PUT');assert.equal(saved.body.ai_question,'honest');assert(saved.path.includes('character_id=test_partner'));
   await click('画面と入力');const split=[...document.querySelectorAll('.switch')].find(l=>l.textContent==='返答を分けて出す').querySelector('input');split.checked=false;split.dispatchEvent(new window.Event('change'));await tick();assert.deepEqual(calls.filter(c=>c.route==='/api/settings'&&c.method==='PUT').at(-1).body,{display:{split_replies:false}});
-  await click('記録とデータ');const dev=[...document.querySelectorAll('.switch')].find(l=>l.textContent==='開発者画面へのリンクを表示する').querySelector('input');dev.checked=true;dev.dispatchEvent(new window.Event('change'));await tick();assert.equal(localStorage.getItem('cbs.dev'),'true');
+  await click('記録とデータ');const dev=[...document.querySelectorAll('.switch')].find(l=>l.textContent==='開発者画面へのリンクを表示する').querySelector('input');dev.checked=true;dev.dispatchEvent(new window.Event('change'));await tick();assert.equal(localStorage.getItem('cbs.dev'),'true');cfg.developer=false;await click('いまの設定');await click('記録とデータ');assert(!document.body.textContent.includes('開発者モード'),'release builds hide the developer card');cfg.developer=true;
 }else if(mode==='augment'){
   await import('../cbs/web/static/wizard.js');await tick();
   assert.equal(document.querySelectorAll('fieldset').length,1);assert(document.querySelector('input[value=leave_open]').checked);

@@ -7,6 +7,18 @@ from pathlib import Path
 
 from cbs.llm import LLMError
 from cbs.web import create_app
+from cbs.shutdown import GRACEFUL_SECONDS
+
+
+def bounded_server(config):
+    class Server(uvicorn.Server):
+        async def shutdown(self, sockets=None):
+            timer = self.config.app.state.shutdown_clock
+            timer.begin()
+            if 'uvicorn' not in timer.active:
+                timer.start('uvicorn')
+            await super().shutdown(sockets=sockets)
+    return Server(config)
 
 
 def main():
@@ -70,13 +82,23 @@ def run(args, stack):
     except LLMError as error:
         print(error)
         raise SystemExit(1) from None
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port, access_log=False,
-                                          log_config=None, timeout_graceful_shutdown=15))
+    timer = app.state.shutdown_clock
+    timer.exit_process = os._exit
+    server = bounded_server(uvicorn.Config(app, host="127.0.0.1", port=args.port, access_log=False,
+                                          log_config=None, timeout_graceful_shutdown=GRACEFUL_SECONDS))
     app.state.resident_shutdown = lambda: setattr(server, 'should_exit', True)
-    if listener is not None:
-        server.run(sockets=[listener])
-    else:
-        server.run()
+    try:
+        if listener is not None:
+            server.run(sockets=[listener])
+        else:
+            server.run()
+    finally:
+        if timer.started is not None:
+            timer.end('python_workers')
+            timer.start('executor_join')
+            app.state.join_workers()
+            timer.end('executor_join')
+            timer.finish()
 
 
 if __name__ == "__main__":

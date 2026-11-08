@@ -6,7 +6,7 @@ import {modelRoleFields} from './model-role.js';
 import {daysSettings} from './days.js';
 import {requestSettings} from './requests.js';
 import {costSettings} from './costs.js';
-import {api, failureText, node, field, select, action, card, shell, confirmDialog, partnerId, displayDefaults} from './ui.js';
+import {api, failureText, node, field, select, action, card, shell, confirmDialog, partnerId, selectPartner, displayDefaults} from './ui.js';
 import {applyTheme, applyAccent, accents, preference, remember} from './theme.js';
 import {newLook, saveLook, lookSnapshot} from './look-editor.js';
 import {onboardingFinishing} from './onboarding-finishing.js';
@@ -117,7 +117,10 @@ export async function settingsScreen(parent, name, {setup=false}={}) {
   select(ai,'設定方法',{simple:'かんたん',advanced:'詳細設定'},draft.llm.mode,v=>{draft.llm.mode=v;showMode();});
   const simple=node('div');ai.append(simple);simple.hidden=draft.llm.mode!=='simple';
   draft.simple={...(cfg.simple||{})};
-  const saveConnection=connectionPanel(simple,cfg,()=>draft.simple,{managed:!setup});
+  // Warnings and failure banners were computed before the connection; refresh them once it is made.
+  const warningBox=node('div');
+  const refreshWarnings=async()=>{try{const fresh=await api('/api/settings');cfg.warnings=fresh.warnings;warningBox.replaceChildren(...(setup?[]:fresh.warnings).map(w=>node('p',w,'warn')));}catch{/* keep the old list */}};
+  const saveConnection=connectionPanel(simple,cfg,()=>draft.simple,{managed:!setup,onConnected:()=>void refreshWarnings()});
   // The judge has a single recommended model, so the simple mode keeps it fixed (choose it in advanced mode).
   draft.simple.judge=draft.simple.judge||cfg.models.judge;
   for(const [role,title] of [['actor','会話のモデル']]){
@@ -156,42 +159,54 @@ export async function settingsScreen(parent, name, {setup=false}={}) {
   const zdrLabel=node('label',undefined,'switch'),zdr=node('input');zdr.type='checkbox';zdr.checked=draft.llm.zdr_only;zdr.onchange=()=>draft.llm.zdr_only=zdr.checked;
   zdrLabel.append(zdr,node('span','会話を保存しない提供元だけを使う（OpenRouter）'));ai.append(zdrLabel);
   ai.append(node('p','オンにすると、送った内容を保存しないと申告している提供元だけを使います。使える提供元が減るため、返事が遅くなったり、混み合って失敗したりすることがあります。動画を観る活動は使えなくなります。どの提供元も会話を学習には使わないと申告しています。OpenRouter 以外の接続（Gemini 直接・ローカルモデル）には影響しません。','small muted'));
-  function showMode(){simple.hidden=draft.llm.mode!=='simple';advanced.hidden=draft.llm.mode!=='advanced';for(const input of advanced.querySelectorAll('input,select'))input.disabled=draft.llm.mode!=='advanced';for(const role of ['vision','stt'])if(roleInputs[role]){roleInputs[role].model.disabled=draft.llm.mode!=='advanced'||roles[role].provider==='none';roleInputs[role].model.required=roles[role].provider!=='none';}void downloads.refresh();void sttDownloads.refresh();}
+  function showMode(){for(const role of ['embedding','stt'])if(localBoxes[role])localBoxes[role].hidden=roles[role].provider!=='local';simple.hidden=draft.llm.mode!=='simple';advanced.hidden=draft.llm.mode!=='advanced';for(const input of advanced.querySelectorAll('input,select'))input.disabled=draft.llm.mode!=='advanced';for(const role of ['vision','stt'])if(roleInputs[role]){roleInputs[role].model.disabled=draft.llm.mode!=='advanced'||roles[role].provider==='none';roleInputs[role].model.required=roles[role].provider!=='none';}void downloads.refresh();void sttDownloads.refresh();}
   const providerOptions={gemini:'Gemini',anthropic:'Claude（Anthropic）',openai:'OpenAI',openrouter:'OpenRouter',local:'ローカル（OpenAI 互換）'};
   for(const p of Object.keys(cfg.llm.providers))if(!providerOptions[p])providerOptions[p]=`ローカル（${p}）`;
-  const roles={},roleInputs={};
+  const roles={},roleInputs={},localBoxes={},lastProvider={};
+  // The model a provider uses for this role: its transcription candidate, a preset's choice, or the first local model.
+  const defaultModel=(role,provider)=>{
+    if(role==='stt'){const local=Object.keys(cfg.stt?.local_models||{})[0];return provider==='local'?(local&&'local/'+local):Object.keys(cfg.stt?.candidates||{}).find(m=>m.startsWith(provider+'/'));}
+    return provider==='local'?'local/ruri-v3-130m':presets.map(p=>p.models[role]).find(m=>m?.startsWith(provider+'/'));
+  };
   function syncPreset(){
     const values={...Object.fromEntries(Object.entries(roles).map(([role,r])=>[role,r.provider==='none'?'':`${r.provider}/${r.model.trim()}`])),research:draft.models.research};
     const selected=presets.find(p=>Object.entries(p.models).every(([role,model])=>values[role]===model));
     presetChoice.value=selected?.id||'custom';presetNote.textContent=selected?.description||'';
   }
   for(const [role,title,desc] of [['actor','会話','話す言葉をつくります'],['judge','判断','場面や返答を確かめます'],['steward','記憶の整理','経験を手帖に残します'],['embedding','記憶の検索','話に合う記憶を探します'],['vision','写真の読み取り','写真を一度だけ説明文にします'],['stt','文字起こし','声を文字にして入力欄へ入れます']]){
-    const [provider,...model]=((cfg.advanced_models||cfg.models)[role]||(['vision','stt'].includes(role)?'none/':'gemini/')).split('/');roles[role]={provider,model:model.join('/')};
+    const [provider,...model]=((cfg.advanced_models||cfg.models)[role]||(['vision','stt'].includes(role)?'none/':'gemini/')).split('/');roles[role]={provider,model:model.join('/')};lastProvider[role]=provider;
     const row=node('div',undefined,'srow');row.append(node('p',desc,'small muted'));advanced.append(row);
-    roleInputs[role]=modelRoleFields(row,title,role==='embedding'?Object.fromEntries(Object.entries(providerOptions).filter(([p])=>p!=='anthropic')):role==='stt'?{none:'使わない',gemini:'Gemini',openai:'OpenAI',openrouter:'OpenRouter',local:'ローカルモデル（Haas-ja）'}:role==='vision'?{none:'使わない',...providerOptions}:providerOptions,()=>roles[role],()=>{renderCredentials();syncPreset();if(role==='embedding')void downloads.refresh();void sttDownloads.refresh();});
+    roleInputs[role]=modelRoleFields(row,title,role==='embedding'?{...Object.fromEntries(Object.entries(providerOptions).filter(([p])=>p!=='anthropic')),local:'ローカルモデル（ruri）'}:role==='stt'?{none:'使わない',gemini:'Gemini',openai:'OpenAI',openrouter:'OpenRouter',local:'ローカルモデル（Haas-ja）'}:role==='vision'?{none:'使わない',...providerOptions}:providerOptions,()=>roles[role],()=>{
+      // A service's own transcription model replaces a local model name (and the reverse).
+      if(['stt','embedding'].includes(role)&&roles[role].provider!==lastProvider[role]){
+        lastProvider[role]=roles[role].provider;
+        const provider=roles[role].provider,known=defaultModel(role,provider);
+        roles[role].model=known?known.split('/').slice(1).join('/'):'';roleInputs[role].model.value=roles[role].model;
+      }
+      renderCredentials();syncPreset();if(role==='embedding')void downloads.refresh();void sttDownloads.refresh();});
+    // Local model choices and their download sit in their own row, shown only for「ローカル」.
+    if(role==='embedding'||role==='stt'){localBoxes[role]=node('div',undefined,'set');row.append(localBoxes[role]);}
   }
-  advanced.append(node('p','ローカルの記憶検索は、容量を確認してモデルを取得してから保存します。サービスをローカル、モデル名を ruri-v3-130m などにします。','small muted'));
-  const embeddingPresets=node('div',undefined,'row');advanced.append(embeddingPresets);
-  for(const [model,label] of [['ruri-v3-130m','ruri-v3-130m（初回 約140 MB）'],['ruri-v3-30m','ruri-v3-30m（初回 約44 MB）']])action(embeddingPresets,label,()=>{
-    roles.embedding={provider:'local',model};
-    const inputs=[...advanced.querySelectorAll('label')];
-    const provider=inputs.find(e=>e.textContent.startsWith('記憶の検索のサービス')).querySelector('select');provider.value='local';
-    inputs.find(e=>e.textContent.startsWith('記憶の検索のモデル名')).querySelector('input').value=model;renderCredentials();syncPreset();
-  });
-  const downloads=embeddingDownload(advanced,()=>draft.llm.mode==='advanced'?`${roles.embedding.provider}/${roles.embedding.model.trim()}`:'');
-  const sttDownloads=embeddingDownload(advanced,()=>draft.llm.mode==='advanced'?`${roles.stt.provider}/${roles.stt.model.trim()}`:'',{endpoint:'/api/stt',title:'ローカルの文字起こし',label:'文字起こしモデル',parameters:()=>({device:draft.stt?.device||'auto'})});
-  const speechInput=card(panels.ai,'声で入力する');speechInput.append(node('p','マイクの音声を文字にして、会話の入力欄へ入れます。ローカルモデルの Haas-ja は日本語向けの高速な文字起こしです（約0.66 GB）。','small muted'));
+  const pickLocal=(role,model)=>{roles[role]={provider:'local',model};roleInputs[role].provider.value='local';roleInputs[role].model.value=model;renderCredentials();syncPreset();};
+  localBoxes.embedding.append(node('p','この PC で記憶を探すモデルです。容量を確かめてから取得します。','small muted'));
+  const embeddingPresets=node('div',undefined,'row');localBoxes.embedding.append(embeddingPresets);
+  for(const [model,label] of [['ruri-v3-130m','ruri-v3-130m（初回 約140 MB）'],['ruri-v3-30m','ruri-v3-30m（初回 約44 MB）']])action(embeddingPresets,label,()=>pickLocal('embedding',model));
+  const downloads=embeddingDownload(localBoxes.embedding,()=>draft.llm.mode==='advanced'?`${roles.embedding.provider}/${roles.embedding.model.trim()}`:'');
   draft.stt??={auto_send:false,max_seconds:60,silence_seconds:2,device:'auto'};
+  localBoxes.stt.append(node('p','この PC で声を文字にするモデルです。Haas-ja は日本語向けの高速な文字起こしです。','small muted'));
+  const sttChoices=node('div',undefined,'row');localBoxes.stt.append(sttChoices);
+  for(const [id,spec] of Object.entries(cfg.stt?.local_models||{}))action(sttChoices,`${id}（約${(spec.size/1e6).toFixed(0)} MB）`,()=>pickLocal('stt',id));
+  select(localBoxes.stt,'ローカルの文字起こしで使う装置',{auto:'自動（対応GPUがあれば使用）',gpu:'GPU（Vulkan）',cpu:'CPU'},draft.stt.device,v=>{draft.stt.device=v;void sttDownloads.refresh();});
+  const sttDownloads=embeddingDownload(localBoxes.stt,()=>draft.llm.mode==='advanced'?`${roles.stt.provider}/${roles.stt.model.trim()}`:'',{endpoint:'/api/stt',title:'ローカルの文字起こし',label:'文字起こしモデル',parameters:()=>({device:draft.stt?.device||'auto'})});
+  const speechInput=card(panels.ai,'声で入力する');speechInput.append(node('p','マイクの音声を文字にして、会話の入力欄へ入れます。文字にする方法は、詳細設定の「文字起こし」で選べます。あとから設定の「画面と入力」でも変えられます。','small muted'));
   sttSettingsFields(speechInput,draft);
-  select(speechInput,'ローカルの文字起こしで使う装置',{auto:'自動（対応GPUがあれば使用）',gpu:'GPU（Vulkan）',cpu:'CPU'},draft.stt.device,v=>{draft.stt.device=v;void sttDownloads.refresh();});
-  const sttChoices=node('div',undefined,'row');advanced.append(sttChoices);
-  for(const [value,label] of [...Object.entries(cfg.stt?.candidates||{}).filter(([,ok])=>ok).map(([id])=>[id,id]),...Object.entries(cfg.stt?.local_models||{}).map(([id,spec])=>[`local/${id}`,`${id}（約${(spec.size/1e6).toFixed(0)} MB）`])])action(sttChoices,label,()=>{const [provider,...model]=value.split('/');roles.stt={provider,model:model.join('/')};roleInputs.stt.provider.value=provider;roleInputs.stt.model.value=model.join('/');renderCredentials();syncPreset();});
   const researchModel=field(advanced,'調べ物のモデル名',(cfg.advanced_models||cfg.models).research||'gemini/gemini-3.8-flash',v=>{draft.models.research=v;renderCredentials();syncPreset();});
   draft.models.research=researchModel.value;
   syncPreset();
   const credentials=node('div');advanced.append(credentials);const keyFields={}, localFields={};
   const warnings=node('div');warnings.setAttribute('role','status');advanced.append(warnings);
   function renderCredentials() {
+    for(const role of ['stt','embedding'])if(roles[role])lastProvider[role]=roles[role].provider;  // presets and local picks change it without the select
     const used=new Set(Object.values(roles).map(r=>r.provider));if(draft.autonomy.research)used.add((draft.models.research||'gemini/').split('/')[0]);
     credentials.replaceChildren();
     for(const p of [...used].filter(p=>p!=='none')){
@@ -205,7 +220,9 @@ export async function settingsScreen(parent, name, {setup=false}={}) {
         row.append(localFields[p].label,node('p','キーは不要です。','small muted'));
       }
     }
-    const rp=(draft.models.research||'gemini/').split('/')[0];warnings.replaceChildren(...(draft.autonomy.research&&cfg.keys[rp]!=='set'?[node('p',`調べ物には ${providerOptions[rp]||rp} のキーが必要です。未設定の間は調べ物を行いません。`,'warn')]:[]));
+    // Only when research alone needs this key; a key the conversation needs anyway is asked for above.
+    const rp=(draft.models.research||'gemini/').split('/')[0],alone=!Object.values(roles).some(r=>r.provider===rp);
+    warnings.replaceChildren(...(draft.autonomy.research&&alone&&cfg.keys[rp]!=='set'?[node('p',`調べ物には ${providerOptions[rp]||rp} の API キーも使います。入れるまでは調べ物をしません。`,'small muted')]:[]));
     showMode();
   }
   research.onchange=()=>{draft.autonomy.research=research.checked;draft.autonomy.tools.research.enabled=research.checked;renderCredentials();};renderCredentials();
@@ -216,10 +233,11 @@ export async function settingsScreen(parent, name, {setup=false}={}) {
     try{await reindexAI(text=>progress.textContent=text);}catch(error){if(!maintenance.querySelector('button'))action(maintenance,'もう一度、索引を作り直す',reindex);throw error;}
   }
   if(cfg.reindex_required)action(maintenance,'記憶の索引を作り直す',reindex);
-  for(const warning of cfg.warnings)ai.append(node('p',warning,'warn'));
+  // 「はじめに」 shows only what to do next; whole-app warnings (no key yet, unused features) wait for settings.
+  if(!setup)warningBox.append(...cfg.warnings.map(warning=>node('p',warning,'warn')));ai.append(warningBox);
   const backup=!setup&&cfg.backup_status?backupSettings(panels.other,cfg,{managed:true}):null;
   const dev=card(panels.other,'開発者モード'), devLabel=node('label',undefined,'switch'),toggle=node('input');toggle.type='checkbox';toggle.checked=preference('dev')==='true';devLabel.append(toggle,node('span','開発者画面へのリンクを表示する'));dev.append(devLabel);
-  dev.hidden=setup;
+  dev.hidden=setup||!cfg.developer;  // release builds do not offer the developer screen
   const devLink=node('a','開発者画面を開く','btn');devLink.href=`/dev?character=${encodeURIComponent(partnerId)}`;devLink.hidden=!toggle.checked;dev.append(devLink);
   toggle.onchange=()=>{devLink.hidden=!toggle.checked;};
   const save=node('button',setup?'つながるか確かめて進む':'AI の設定を保存','btn primary');save.type=setup?'submit':'button';if(setup)form.append(save);else panels.ai.append(save);
@@ -294,7 +312,7 @@ export async function editLook(parent) {
 }
 
 export {embeddingIdentity} from './settings-entry.js';
-export function connectionPanel(parent,cfg,simpleChoices,{managed=false}={}){
+export function connectionPanel(parent,cfg,simpleChoices,{managed=false,onConnected=()=>{}}={}){
   const status=node('p',cfg.keys.openrouter==='set'?'OpenRouter につながっています。':'OpenRouter につなぐと、ひとつのキーで会話や記憶の整理、調べ物を使えます。');parent.append(status);
   const login=node('button','OpenRouter でログイン','btn primary');login.type='button';const connectionActions=node('div',undefined,'row');parent.append(connectionActions);connectionActions.append(login);let stopLogin;
   const modeSettings=()=>({llm:{mode:'simple'},...(simpleChoices?{simple:simpleChoices()}:{})});
@@ -304,7 +322,7 @@ export function connectionPanel(parent,cfg,simpleChoices,{managed=false}={}){
   login.onclick=async e=>{e.preventDefault();if(login.classList.contains('busy'))return;
     if(managed&&!await leaveSettings())return;
     login.classList.add('busy');login.setAttribute('aria-disabled','true');login.textContent='OpenRouter に移動しています…';
-    try{await api('/api/settings',modeSettings(),'PUT');stopLogin?.();stopLogin=await openRouterLogin(parent,updated=>{cfg.keys=updated.keys;status.textContent='連携できました。';login.classList.remove('busy');login.removeAttribute('aria-disabled');login.textContent=idle;},()=>{status.textContent='ブラウザでの連携を待っています。キャンセルした場合はもう一度試せます。';login.classList.remove('busy');login.removeAttribute('aria-disabled');login.textContent=idle;});}
+    try{await api('/api/settings',modeSettings(),'PUT');stopLogin?.();stopLogin=await openRouterLogin(parent,updated=>{cfg.keys=updated.keys;status.textContent='連携できました。もう一度押すと、つなぎ直せます。';login.classList.remove('busy');login.removeAttribute('aria-disabled');login.textContent='OpenRouter でつなぎ直す';onConnected();},()=>{status.textContent='ブラウザでの連携を待っています。キャンセルした場合はもう一度試せます。';login.classList.remove('busy');login.removeAttribute('aria-disabled');login.textContent=idle;});}
     catch(error){status.textContent=error.message;login.classList.remove('busy');login.removeAttribute('aria-disabled');login.textContent=idle;}};
   if(cfg.keys.openrouter==='set')action(connectionActions,'切る',async()=>{await api('/api/settings/keys',{provider:'openrouter',key:''},'PUT');cfg.keys.openrouter='unset';status.textContent='接続を切りました。';});
   parent.append(node('p','使いすぎを防ぐため、OpenRouter 側で利用上限を設定できます。','small muted'));
@@ -321,6 +339,8 @@ export async function connectionGate(parent){
   if(cfg.ai_ready!==false){
     return false;
   }
+  // After a restore without keys the partner already exists; select it so its face shows.
+  const partner=(await api('/api/partner').catch(()=>({})))?.partner;if(partner)selectPartner(partner.id);
   parent.replaceChildren();shell('settings');
   if(document.getElementById('heading'))document.getElementById('heading').textContent='はじめに';
   if(document.getElementById('subtitle'))document.getElementById('subtitle').textContent='使う AI を選んでつなぎ、そのままあなたのパートナーを迎えます。';

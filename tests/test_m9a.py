@@ -163,6 +163,12 @@ def test_settings_reindex_job_and_local_provider(pipeline, tmp_path):
                     "llm": {"mode": "advanced", "providers": {"local": {"base_url": "http://localhost:1234/v1"}}}})
         assert response.status_code == 200 and response.json()["reindex_required"]
         assert client.post("/api/maintenance/reindex").status_code == 202
+        # R12: closing the host now cancels optional reindex work. Verify normal
+        # completion while the host is running instead of relying on exit to drain it.
+        from time import monotonic, sleep
+        deadline = monotonic() + 5
+        while client.get('/api/maintenance/reindex').json()['status'] == 'running' and monotonic() < deadline:
+            sleep(.01)
     assert client.get("/api/maintenance/reindex").json()["status"] == "completed"
     assert not client.get("/api/settings").json()["reindex_required"]
 
@@ -187,6 +193,28 @@ def test_reserved_off_inner_life_and_missing_research_key(pipeline, tmp_path, mo
     pipeline.client = RoutingLLMClient(pipeline.config)
     assert not research_allowed(pipeline)
     assert api(pipeline, tmp_path).get("/api/settings").json()["warnings"]
+
+
+def test_research_and_shopping_warnings_say_what_happens(pipeline, tmp_path, monkeypatch):
+    for name in ('GEMINI_API_KEY', 'OPENROUTER_API_KEY'):
+        monkeypatch.delenv(name, raising=False)
+    pipeline.config.autonomy.research = True
+    pipeline.config.autonomy.tools.browse_shopping.enabled = True
+    import cbs.autonomy
+    monkeypatch.setattr(cbs.autonomy, 'shopping_ready', lambda p: False)  # the fake client is always ready
+    pipeline.config.models.research = 'gemini/gemini-3.8-flash'
+    warnings = api(pipeline, tmp_path).get('/api/settings').json()['warnings']
+    # Product names, not provider ids, and no internal terms such as "ドメイン制限".
+    assert '調べ物に使う Gemini の API キーがまだないため、調べ物をしていません。キーを入れると始まります。' in warnings
+    assert '買い物のページを見る活動は、調べ物を OpenRouter・Claude・OpenAI のどれかにした時だけ動きます。今の設定では行いません。' in warnings
+    assert not any('ドメイン制限' in w or 'gemini のキー' in w for w in warnings)
+    # On OpenRouter without a key, only the research warning applies.
+    pipeline.config.models.research = 'openrouter/google/gemini-3.8-flash'
+    warnings = api(pipeline, tmp_path / 'b').get('/api/settings').json()['warnings']
+    assert any(w.startswith('調べ物に使う OpenRouter の API キーがまだない') for w in warnings)
+    assert not any(w.startswith('買い物') for w in warnings)
+    # The developer card follows the checkout: a release app/ folder has no .git.
+    assert api(pipeline, tmp_path / 'c').get('/api/settings').json()['developer'] is True
 
 
 def test_note_uses_disclosed_turn_only_no_hidden_ids(pipeline, tmp_path):

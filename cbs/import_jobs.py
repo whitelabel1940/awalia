@@ -1,4 +1,5 @@
 """Confirmed, resumable import jobs sharing the existing memory work queue."""
+from cbs.storage import dump_trace
 from cbs.llm.cost import for_step
 import json
 from pathlib import Path
@@ -188,7 +189,7 @@ class ImportJobs:
                 trace = {'Import': {'batch_id':item['batch_id'],'format':conversation.format,'source_id':conversation.source_id,
                     'user_time_source':user.time_source if user else None,'assistant_time_source':assistant.time_source if assistant else None}}
                 db.execute("INSERT INTO turns(session_id,user_text,assistant_text,status,trace_json,created_at,assistant_at,conversation_id) VALUES (?,?,?,'completed',?,?,?,?)",
-                    (sid,user.text if user else '',assistant.text if assistant else '',json.dumps(trace,ensure_ascii=False),at,end,cv))
+                    (sid,user.text if user else '',assistant.text if assistant else '',dump_trace(trace),at,end,cv))
                 db.execute('UPDATE conversations SET last_activity_at=? WHERE id=?',(end,cv))
                 store._chunk(db,db.execute('SELECT * FROM conversations WHERE id=?',(cv,)).fetchone(),max_size=40)
             for cv in db.execute("SELECT * FROM conversations WHERE session_id=? AND status='open'",(sid,)).fetchall():
@@ -226,8 +227,8 @@ class ImportJobs:
                 # All learned-at fields retain this historical utterance time.
                 with clock.at(t['assistant_at']):
                     store._apply_post_check(db,t['session_id'],t['id'],cid,extract,trace)
-                db.execute('UPDATE turns SET trace_json=? WHERE id=?',(json.dumps(trace,ensure_ascii=False),t['id']))
-            db.execute('UPDATE import_steps SET reflected=1,trace_json=? WHERE job_id=?',(json.dumps(pipeline._safe_trace(result.trace()),ensure_ascii=False),job['id']))
+                db.execute('UPDATE turns SET trace_json=? WHERE id=?',(dump_trace(trace),t['id']))
+            db.execute('UPDATE import_steps SET reflected=1,trace_json=? WHERE job_id=?',(dump_trace(pipeline._safe_trace(result.trace())),job['id']))
 
     def _work(self, pipeline, token):
         store,cid = pipeline.store,pipeline.config.character.id

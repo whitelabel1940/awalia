@@ -80,6 +80,8 @@ class EmbeddingWarmer:
         self.last_error = None
 
     def request(self, documents=(), *, refresh=False):
+        if self.pipeline.store.upkeep_stop.is_set():
+            return
         with self.condition:
             self.pending.update((entry[3],entry) for entry in documents)
             self.refresh |= refresh
@@ -102,10 +104,12 @@ class EmbeddingWarmer:
                     return
             try:
                 if refresh:
-                    warm_user_fact_embeddings(self.pipeline)
-                    warm_candidate_embeddings(self.pipeline)
+                    from cbs.shutdown import run_upkeep
+                    run_upkeep(self.pipeline.store, warm_user_fact_embeddings, self.pipeline)
+                    run_upkeep(self.pipeline.store, warm_candidate_embeddings, self.pipeline)
                 if documents:
-                    warm_source_documents(self.pipeline,documents)
+                    from cbs.shutdown import run_upkeep
+                    run_upkeep(self.pipeline.store, warm_source_documents, self.pipeline, documents)
             except Exception as error:
                 # Optional indexing may fail; a later request retries cache misses.
                 self.last_error = type(error).__name__

@@ -12,7 +12,9 @@ from cbs.display_text import display_call
 
 MAX_SCENES = 32  # Per item. One episode may contribute at most two scenes.
 # 2: lines are one level more general; each episode gets a user-facing caption as evidence.
-FORMAT = 2
+# 3: the partner is always the unstated subject; "あなた" is only the other person in the scene.
+FORMAT = 3
+SEEN_BEFORE = '2000-01-01T00:00:00+00:00'  # First-seen time for entries older than the `at` field.
 
 
 class NoteField(BaseModel):
@@ -182,7 +184,11 @@ def fill_forming_notes(pipeline, *, source_turn=None):
                     and min(pending) < max(state['processed']))
     if state.get('format') != FORMAT and source_turn is None:
         # Rebuild once with the current wording rules on the daily pass; older lines stay until then.
-        state = empty_state()
+        # Keep when each summary/trait first appeared, so a rewrite does not show NEW or a notice again.
+        # Entries saved before `at` existed are old by definition.
+        first = {kind: {k: {'at': v.get('at') or SEEN_BEFORE} for k, v in state.get(kind, {}).items()}
+                 for kind in ('summaries', 'traits')}
+        state = {**empty_state(), **first}
         save_state(pipeline, state)
     if not set(state['processed']) <= episodes.keys() or out_of_order:
         # Invalidation/redaction: no sentence inheriting removed evidence survives.

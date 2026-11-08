@@ -21,7 +21,7 @@ for(const state of [{unread_count:0,has_update:false},{unread_count:2,has_update
 const screen=document.getElementById('screen');
 const mark=await newsScreen(screen);
 assert.equal(writes.length,0);
-assert.deepEqual([...screen.querySelectorAll('h3')].map(h=>h.firstChild.textContent),['新しい版 0.2.0','<img src=x>','old','フィードバックをお願いします']);
+assert.deepEqual([...screen.querySelectorAll('h3')].map(h=>h.firstChild.textContent),['バージョンアップのお知らせ','<img src=x>','old','フィードバックをお願いします']);
 assert(screen.textContent.includes('<b>hello</b>\nnext'));assert(!screen.querySelector('b,img'));
 assert.equal(screen.querySelectorAll('a').length,3);assert([...screen.querySelectorAll('a')].every(a=>a.target==='_blank'&&a.protocol==='https:'));
 const normalFetch=globalThis.fetch;let deliver;

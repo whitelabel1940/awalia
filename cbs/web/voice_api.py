@@ -381,6 +381,8 @@ def install_voice(app, selected, characters_root, data_dir):
             def work():
                 try:
                     service.synthesize(pipeline, text, expression, turn_id=turn_id, on_audio=on_audio)
+                except TTSError as error:
+                    emit('error', {'message': str(error)})
                 except Exception:
                     emit('error', {'message': '音声を作れませんでした。もう一度再生してください。'})
                 finally:

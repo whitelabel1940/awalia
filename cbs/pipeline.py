@@ -343,6 +343,11 @@ class TurnPipeline:
             self._schedule_maintenance(session_id=session_id,close=close,retry=retry,inner_life=inner_life)
 
     def _schedule_maintenance(self, *, session_id=None, close=False, retry=True, inner_life=True):
+        if self.store.upkeep_stop.is_set():
+            # Persist only the local conversation boundary. Do not enqueue new LLM work.
+            if close:
+                self.store.sweep_conversations(session_id=session_id, force=True)
+            return
         self.store.costs.schedule()
         from cbs.memory import daily_maintenance, enqueue_pending
         from cbs.steward import submit
@@ -525,7 +530,10 @@ class TurnPipeline:
         # Include every active plan and recent closed plans; keep full history for Post-Check.
         memory_plans = {plan["plan_id"]: plan for plan in plans[-20:] + active_plans}
         candidate_memories += [{"ref": f"plan:{plan['plan_id']}", **plan} for plan in memory_plans.values()]
-        candidate_memories += [{"ref": f"episode:{episode['id']}", **episode} for episode in episodes]
+        # A turn still in recent_turns is read as it was said; its episode would repeat it as a rule to follow.
+        shown_turns = {turn['id'] for turn in recent}
+        candidate_memories += [{"ref": f"episode:{episode['id']}", **episode} for episode in episodes
+                               if episode.get('source_turn') not in shown_turns]
         self.store.expire_threads(self.config.character.id, self.config.autonomy.thread_expiry_days)
         self.store.sync_plan_threads(self.config.character.id)
         candidate_memories += self.store.list_threads(self.config.character.id, eligible_only=True)

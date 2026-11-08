@@ -62,19 +62,11 @@ def settings_candidate(cfg, body, data_dir):
 
 
 def toml_text(values):
-    lines = []
-    def section(data, parts):
-        scalars = {k: v for k, v in data.items() if not isinstance(v, dict)}
-        if scalars:
-            lines.append("[" + ".".join(json.dumps(p) for p in parts) + "]")
-            for k, v in scalars.items():
-                lines.append(json.dumps(k) + " = " + ("true" if v is True else "false" if v is False else json.dumps(v, ensure_ascii=False)))
-        for k, v in data.items():
-            if isinstance(v, dict):
-                section(v, parts + [k])
-    for key, value in values.items():
-        section(value, [key])
-    return "\n".join(lines) + "\n"
+    # A restored settings.toml holds arrays of tables (e.g. simple.actor_candidates). The backup
+    # writer emits them as [[...]] and parses its own output, so a save can never leave a file
+    # that stops the next start.
+    from cbs.backup import toml_bytes
+    return toml_bytes(values).decode("utf-8")
 
 
 def atomic_write(path, text):
@@ -141,14 +133,23 @@ def install_settings(app, pipeline, pipelines, data_dir, selected):
         values["connection_verified"] = app.state.connection_verified()
         values['voice_setup_done'] = app.state.voice_setup_done()
         values['knowing_available'] = True
+        # Release builds (no .git beside the app) do not offer the developer screen.
+        from cbs.config import ROOT
+        values['developer'] = (ROOT / '.git').exists()
         values['backup'] = cfg.backup.model_dump()
         values['backup_status'] = app.state.backup.status()
         values['costs'] = {k: getattr(cfg.costs, k) for k in ALLOWED['costs']}
         values['cost_summary'] = pipeline.store.costs.summary()
-        values["warnings"] = ([f"{research_provider(cfg)} のキーまたはサービスの設定により調べ物を行いません。"] if cfg.autonomy.research and not research_ready(cfg) else [])
+        provider = research_provider(cfg)
+        label = {'gemini': 'Gemini', 'openrouter': 'OpenRouter', 'anthropic': 'Claude（Anthropic）', 'openai': 'OpenAI'}.get(provider)
+        values["warnings"] = ([f"調べ物に使う {label} の API キーがまだないため、調べ物をしていません。キーを入れると始まります。" if label else
+                               "今の調べ物のモデルは、調べ物に使えません。「AI と費用」の詳細設定で調べ物のモデルを確かめてください。"]
+                              if cfg.autonomy.research and not research_ready(cfg) else [])
         from cbs.autonomy import shopping_ready
-        if cfg.autonomy.tools.browse_shopping.enabled and not shopping_ready(pipeline):
-            values['warnings'].append('買い物の検索にはドメイン制限に対応するOpenRouterの調べ物設定が必要です。')
+        # Shopping search needs a service that can limit the sites it searches. A supported service
+        # still waiting for its key is covered by the research warning above.
+        if cfg.autonomy.tools.browse_shopping.enabled and provider not in ('openrouter', 'anthropic', 'openai') and not shopping_ready(pipeline):
+            values['warnings'].append('買い物のページを見る活動は、調べ物を OpenRouter・Claude・OpenAI のどれかにした時だけ動きます。今の設定では行いません。')
         try:
             pipeline.store.require_embedding_model(embedding_model(cfg))
             values["reindex_required"] = False
@@ -298,6 +299,9 @@ def install_settings(app, pipeline, pipelines, data_dir, selected):
                 keys[name] = ""
             atomic_write(path, "".join(k + "=" + json.dumps(v) + "\n" for k, v in keys.items()))
             os.environ[name] = value
+            from cbs.llm.failures import FailureState
+            failures = getattr(pipeline.store, 'llm_failures', None) or FailureState(pipeline.store)
+            failures.forget(provider)
             for p in hosts:
                 if not isinstance(p.client, FakeLLMClient):
                     p.client = RoutingLLMClient(p.config)
@@ -340,10 +344,13 @@ def install_settings(app, pipeline, pipelines, data_dir, selected):
                     def progress(done, total):
                         app.state.reindex.update(completed=done, total=total)
                     submit(pipeline.store, reindex, pipeline.store, pipeline.client, pipeline.config, progress).result()
+                    from cbs.shutdown import checkpoint
+                    checkpoint()  # A skipped shutdown job must not be reported as completed.
                 app.state.reindex["status"] = "completed"
             except Exception:
                 app.state.reindex.update(status="failed", error="索引の作り直しに失敗しました。設定を確認して再試行してください。")
-        task = asyncio.create_task(asyncio.to_thread(rebuild))
+        from cbs.shutdown import run_upkeep
+        task = asyncio.create_task(asyncio.to_thread(run_upkeep, pipeline.store, rebuild))
         app.state.bootstrap_tasks.add(task)
         task.add_done_callback(app.state.bootstrap_tasks.discard)
         return dict(app.state.reindex)

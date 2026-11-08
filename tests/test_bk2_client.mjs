@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 const require=createRequire(import.meta.url),{JSDOM}=require('../.tmp/m9b_dom/node_modules/jsdom');
 const dom=new JSDOM('<!doctype html><html><body><p id="error" hidden></p><main id="screen"></main></body></html>',{url:'https://unit.invalid/#settings',runScripts:'outside-only'});
 for(const key of ['window','document','location','localStorage'])globalThis[key]=dom.window[key];
-let mode='password',staged=false,notice=true;const calls=[];
+let mode='password',staged=false,notice=true,folder=null;const calls=[];
 const response=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json'}});
 globalThis.fetch=async(path,options={})=>{
   calls.push({path,options});
@@ -19,7 +19,7 @@ globalThis.fetch=async(path,options={})=>{
   }
   if(path.endsWith('/stage')){staged=true;return response({status:'staged'},202);}
   if(path.startsWith('/api/restore/previews/'))return response({status:'cancelled'});
-  if(path==='/api/restore/notice'){const created_at=notice?'2026-10-21T12:00:00+09:00':null;notice=false;return response({created_at});}
+  if(path==='/api/restore/notice'){const created_at=notice?'2026-10-21T12:00:00+09:00':null;notice=false;return response({created_at,backup_folder:created_at?folder:null});}
   throw Error(`Unexpected endpoint ${path}`);
 };
 const {restoreEntry,showRestoreNotice}=await import('../cbs/web/static/restore.js');
@@ -44,16 +44,27 @@ mode='error';password.value='wrong';await click(section,'中身を確かめる')
 mode='ok';password.value='日本語パスワード';await click(section,'中身を確かめる');
 assert.equal(password.value,'');assert(section.textContent.includes('今の記録はバックアップしてから入れ替えます'));
 assert(section.textContent.includes('会話 約12件'));assert(section.textContent.includes('<script>人物</script>'));assert(!section.querySelector('script'));
-await click(section,'やめる');assert(section.textContent.includes('やめました'));assert(calls.some(c=>c.options.method==='DELETE'));
-password.value='日本語パスワード';await click(section,'中身を確かめる');await click(section,'戻す');
+await click(section,'入れ替えずに閉じる');assert(section.textContent.includes('やめました'));assert(calls.some(c=>c.options.method==='DELETE'));
+password.value='日本語パスワード';await click(section,'中身を確かめる');await click(section,'この記録に入れ替える');
 assert(staged);assert(section.textContent.includes('次の起動で記録を入れ替えます'));assert(!section.querySelector('input[type=password]'));
 let restarted=0;window.__TAURI__={core:{invoke:async command=>{assert.equal(command,'resident_restore_restart');restarted++;}}};
 parent.replaceChildren();const resident=restoreEntry(section);await resident.querySelector('button').onclick();
 assert.equal(restarted,1);assert(resident.textContent.includes('再起動しています'));
 await showRestoreNotice();await showRestoreNotice();assert.equal(document.querySelectorAll('.backup-notice').length,1);
 assert(document.body.textContent.includes('2026年10月21日にバックアップした記録から戻しました'));
+assert(!document.body.textContent.includes('引き継いでいません'));
+// The old PC's backup folder was not carried over: say so, name it, and offer the settings shelf.
+document.querySelector('.backup-notice').remove();notice=true;folder='D:\\Sync\\<b>Awalia</b>';
+await showRestoreNotice();const left=document.querySelector('.backup-notice');
+assert(left.textContent.includes('別の場所へのバックアップは引き継いでいません'));assert(left.textContent.includes('前の PC での保存先（参考）: D:\\Sync\\<b>Awalia</b>'));assert(!left.querySelector('b'));
+const choose=[...left.querySelectorAll('button')].find(b=>b.textContent==='記録とデータを開く');assert(choose);choose.onclick();
+assert(location.hash==='#settings/data');assert(!document.querySelector('.backup-notice'));
 const read=name=>readFileSync(new URL(name,import.meta.url),'utf8');
 assert(read('../cbs/web/static/wizard.js').includes('onWelcome:welcomeRestore'));
+// The notice is read (and consumed) only once the chat screen is up, never during 「はじめに」.
+const user=read('../cbs/web/static/user.js');
+assert(user.includes("ready=true;await view();void restoreNoticeOnTalk()"));assert(user.includes("['note','settings','news'].includes(tab))return;"));
+assert.equal(user.match(/showRestoreNotice\(/g).length,1);
 assert(read('../cbs/web/static/backup.js').includes('restoreEntry(section,'));
 assert(read('../cbs/web/static/screens.css').includes('.restore-settings input{box-sizing:border-box;max-width:100%'));
 const rust=read('../desktop/src-tauri/src/main.rs'),config=JSON.parse(read('../desktop/src-tauri/tauri.conf.json'));

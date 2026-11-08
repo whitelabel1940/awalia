@@ -432,7 +432,7 @@ class SetupHelperConfig(BaseModel):
 
 
 class ShareConfig(BaseModel):
-    url: str = 'https://github.com/whitelabel1940/awalia'
+    url: str = 'https://awalia.jp/'
     hashtag: str = 'Awalia'
 
 
@@ -481,7 +481,7 @@ class Config(BaseModel):
 
 
 class StorageConfig(BaseModel):
-    full_trace_days: int = Field(default=14, ge=0)
+    full_trace_days: int = Field(default=2, ge=0)
 
 
 def overlay(base, values):

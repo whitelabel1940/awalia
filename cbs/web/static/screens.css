@@ -275,6 +275,11 @@ ul.list li{padding-left:12px;border-left:2px solid var(--line);font-size:var(--t
 .restore-settings,.restore-confirm{min-width:0;overflow-wrap:anywhere}
 .restore-settings input{box-sizing:border-box;max-width:100%;width:100%;min-width:0}
 .restore-confirm .btn{margin:.3rem .5rem .3rem 0;max-width:100%;white-space:normal}
+.restore-partners{list-style:none;padding:0;display:grid;gap:14px}
+.restore-partner{display:flex;align-items:center;gap:12px;min-width:0}
+.restore-partner .face{width:48px;height:48px}
+.restore-partner .face img{width:100%;height:100%;object-fit:cover}
+.restore-partner p{margin:4px 0 0}
 @media(max-width:480px){.day-row,.habit-row{padding:.65rem}.day-date-fields{gap:.35rem}}
 
 /* EX2: three saved levels, shared light/dark colors and wrapping phone layout. */
@@ -444,6 +449,8 @@ body.onboarding .onboarding-unframed{background:transparent;border:0;box-shadow:
 /* R3: shared navigation controls, badges and header spacing. */
 .nav .news-menu{margin-top:auto}.nav .news-menu+.partner{margin-top:0}
 .news-mobile{display:none}.news-menu .badge,.news-mobile .badge,.news-unread{margin-left:8px}
+.news-menu .news-badge,.news-mobile .news-badge{background:var(--accent-fill);color:var(--on-accent);border-radius:999px;min-width:1.6em;padding:1px 6px;text-align:center;font-weight:700}
+.onboarding-update h3,.onboarding-update p{margin:0 0 8px}
 .head{position:relative}.news-menu .ui-icon{flex-shrink:0}
 @media(max-width:767px){.news-mobile{display:inline-flex;flex-shrink:0}.head .news-mobile{position:absolute;right:0;top:0}.head:has(.news-mobile){padding-right:72px}.nav .news-menu{display:none}}
 .device.phone .news-mobile{display:inline-flex}

@@ -237,6 +237,23 @@ def test_key_update_keeps_failure_observer_bound(pipeline, tmp_path):
     assert web.get('/api/llm/failures').json()['notices'] == []
 
 
+def test_banner_hides_unused_provider_and_new_key_clears_it(pipeline, tmp_path):
+    # A restored PC without keys fails on Gemini, then is connected to OpenRouter only.
+    from cbs.llm.failures import providers_in_use
+    state = FailureState(pipeline.store)
+    state.record('gemini', LLMError('', kind='auth', provider='gemini'))
+    used = providers_in_use(pipeline.config)
+    shown = [n['provider'] for n in state.notices('ソラ', pipeline.config)]
+    assert ('gemini' in shown) == ('gemini' in used)
+    unused = pipeline.config.model_copy(deep=True)
+    unused.models = unused.models.model_copy(update={role: 'openrouter/test' for role in unused.models.model_dump()})
+    assert state.notices('ソラ', unused) == [] and state.notices('ソラ')
+    app = create_app(pipeline, settings_dir=tmp_path / 'settings', work_root=tmp_path / 'work')
+    with TestClient(app) as web:
+        assert web.put('/api/settings/keys', json={'provider': 'gemini', 'key': ''}).status_code == 200
+    assert FailureState(pipeline.store).notices('ソラ') == []
+
+
 def test_notice_display_name_and_fixed_links():
     for provider in ('openrouter', 'openai', 'anthropic', 'gemini'):
         notice = failure_notice(LLMError('', kind='balance', provider=provider), 'ソラ')

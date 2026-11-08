@@ -12,7 +12,12 @@
       "nsis": {
         "installMode": "currentUser",
         "languages": ["Japanese"],
+        "customLanguageFiles": {
+          "Japanese": "../../release/nsis/Japanese.nsh"
+        },
         "startMenuFolder": "Awalia",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
         "installerHooks": "../../release/nsis-hooks.nsh"
       }
     }

@@ -27,10 +27,11 @@ export function paintNewsBadges(data=status){
   for(const link of document.querySelectorAll('[data-news-link]')){
     link.querySelector('.badge')?.remove();
     if(data.unread_count||data.has_update||nativeUpdate()){
-      const badge=node('span',data.unread_count?String(data.unread_count):'新','badge');
+      const badge=node('span',data.unread_count?String(data.unread_count):'新','badge news-badge');
       badge.setAttribute('aria-label',`未読 ${data.unread_count}件${data.has_update||nativeUpdate()?'・新しい版があります':''}`);link.append(badge);
     }
   }
+  renderOnboardingUpdate();
 }
 export function newsEntries(active){
   const menu=document.getElementById('menu');
@@ -51,11 +52,43 @@ function newsLink(mobile){
 export async function refreshNews(){
   const own=++revision;
   await refreshNative();
-  try{const data=await api('/api/news');if(own===revision)paintNewsBadges(data);}catch{/* Notices never interrupt conversation. */}
+  try{const data=await api('/api/news');if(own===revision)paintNewsBadges(data);}catch{if(own===revision)paintNewsBadges();/* Native updates remain available offline. */}
 }
 function link(parent,label,url){
   try{if(new URL(url).protocol!=='https:')return;}catch{return;}
   const a=node('a',label);a.href=url;a.target='_blank';a.rel='noopener noreferrer';parent.append(a);
+}
+function latestUpdate(data){
+  return nativeUpdate()&&(!data.has_update||newer(nativeStatus.availableVersion,data.latest?.version))
+    ?{version:nativeStatus.availableVersion,notes:nativeStatus.notes}:data.has_update?data.latest:null;
+}
+// Both update surfaces use the same confirmation, install command and progress.
+function updateActions(card,data,latest){
+  if(data.latest?.url)link(card,'ダウンロード',data.latest.url);
+  if(!nativeUpdate())return;
+  if(latest.version!==nativeStatus.availableVersion)card.append(node('p',`このボタンで ${nativeStatus.availableVersion} に更新します。`,'small'));
+  const button=node('button','更新して再起動','btn');button.type='button';
+  button.disabled=['downloading','installing'].includes(nativeStatus.phase);
+  const progress=node('p',nativeStatus.error||(
+    nativeStatus.phase==='downloading'?`ダウンロード中 ${nativeStatus.total?Math.floor(nativeStatus.downloaded/nativeStatus.total*100)+'%':nativeStatus.downloaded+' bytes'}`:
+    nativeStatus.phase==='installing'?'Awalia を閉じて更新しています。':''),'small');
+  progress.setAttribute('role','status');card.append(button,progress);
+  button.onclick=async()=>{
+    if(!window.confirm('Awalia を閉じて更新します。会話は保存されています。'))return;
+    button.disabled=true;progress.textContent='ダウンロードと署名を確認しています。';
+    try{await window.__TAURI__.core.invoke('resident_update_install');}
+    catch(error){progress.textContent=String(error.message||error);button.disabled=false;}
+  };
+}
+function renderOnboardingUpdate(){
+  let notice=document.getElementById('onboarding-update');
+  const latest=latestUpdate(status);
+  if(!document.body.classList.contains('onboarding')||!latest){notice?.remove();return;}
+  const parent=document.getElementById('screen')?.parentElement;
+  if(!parent)return;
+  if(!notice){notice=node('aside',undefined,'card onboarding-update');notice.id='onboarding-update';parent.prepend(notice);}
+  notice.replaceChildren(node('h3','バージョンアップのお知らせ'),node('p',`${latest.version} が出ています。確定した内容は保存されています。入力中の内容は、更新前に確定してください。`,'small'));
+  updateActions(notice,status,latest);
 }
 export async function newsScreen(parent){
   const own=++revision,data=await api('/api/news');await refreshNative();if(own===revision)paintNewsBadges(data);
@@ -64,25 +97,9 @@ export async function newsScreen(parent){
     if(!(data.has_update&&data.latest)&&!nativeUpdate()){card?.remove();card=null;return;}
     if(!card){card=node('section',undefined,'card');parent.prepend(card);}
     card.replaceChildren();
-    const latest=nativeUpdate()&&(!data.has_update||newer(nativeStatus.availableVersion,data.latest?.version))
-      ?{version:nativeStatus.availableVersion,notes:nativeStatus.notes}:data.latest;
-    card.append(node('h3',`新しい版 ${latest.version}`),node('p',latest.notes||'','text'));
-    if(data.latest?.url)link(card,'ダウンロード',data.latest.url);
-    if(nativeUpdate()){
-      if(latest.version!==nativeStatus.availableVersion)card.append(node('p',`このボタンで ${nativeStatus.availableVersion} に更新します。`,'small'));
-      const button=node('button','更新して再起動','btn');button.type='button';
-      button.disabled=['downloading','installing'].includes(nativeStatus.phase);
-      const progress=node('p',nativeStatus.error||(
-        nativeStatus.phase==='downloading'?`ダウンロード中 ${nativeStatus.total?Math.floor(nativeStatus.downloaded/nativeStatus.total*100)+'%':nativeStatus.downloaded+' bytes'}`:
-        nativeStatus.phase==='installing'?'Awalia を閉じて更新しています。':''),'small');
-      progress.setAttribute('role','status');card.append(button,progress);
-      button.onclick=async()=>{
-        if(!window.confirm('Awalia を閉じて更新します。会話は保存されています。'))return;
-        button.disabled=true;progress.textContent='ダウンロードと署名を確認しています。';
-        try{await window.__TAURI__.core.invoke('resident_update_install');}
-        catch(error){progress.textContent=String(error.message||error);button.disabled=false;}
-      };
-    }
+    const latest=latestUpdate(data),current=resident()?nativeStatus.currentVersion:null;
+    card.append(node('h3','バージョンアップのお知らせ'),node('p',`${latest.version} が出ています${current?`（今は ${current}）`:''}`,'small muted'),node('p',latest.notes||'','text'));
+    updateActions(card,data,latest);
   };
   renderUpdate();
   for(const notice of [...data.notices].sort((a,b)=>b.date.localeCompare(a.date))){

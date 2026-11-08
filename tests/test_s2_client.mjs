@@ -8,7 +8,7 @@ const cfg=JSON.parse(execFileSync('.venv/Scripts/python.exe',['-c',
   "import json; from cbs.config import load_config; from pathlib import Path; print(json.dumps(load_config(data_dir=Path('.tmp/s2_node_config')).model_dump()))"],{encoding:'utf8'}));
 cfg.advanced_presets=cfg.advanced.presets;cfg.advanced_models=cfg.advanced_presets[0].models;
 cfg.models=structuredClone(cfg.advanced_models);cfg.llm.mode='advanced';cfg.keys={openrouter:'set',gemini:'set',openai:'set',anthropic:'set'};
-cfg.warnings=[];cfg.reindex_required=false;cfg.tts=null;
+cfg.warnings=['全体の警告の見本'];cfg.reindex_required=false;cfg.tts=null;
 const calls=[];let allowReindex=false;
 globalThis.fetch=async(path,options={})=>{
   const route=path.split('?')[0],body=options.body?JSON.parse(options.body):null;calls.push({route,body,path});
@@ -36,8 +36,25 @@ const control=label=>[...document.querySelectorAll('label')].find(l=>l.firstChil
 const keys=()=>[...document.querySelectorAll('input[type=password]')].filter(e=>e.closest('label').isConnected&&e.closest('label').textContent!=='OpenRouter の API キー').map(e=>e.closest('label').textContent);
 assert.equal(control('AI の組み合わせ').value,'mixed');
 assert(document.body.textContent.includes('Haas-ja は日本語向けの高速な文字起こし'));
-assert(document.body.textContent.includes('約0.66 GB'));
 assert(!document.body.textContent.includes('whisper.cpp'));
+// 「はじめに」 does not show whole-app warnings.
+assert(!document.body.textContent.includes('全体の警告の見本'));
+// Local model choices live in their own role row and show only for「ローカル」.
+const rowOf=title=>control(`${title}のサービス`).closest('.srow'),buttons=title=>[...rowOf(title).querySelectorAll('button')].map(b=>b.textContent);
+const localBox=title=>[...rowOf(title).children].find(e=>e.classList.contains('set'));
+assert(buttons('記憶の検索').some(t=>t.startsWith('ruri-v3-130m')));assert(!buttons('記憶の検索').some(t=>t.startsWith('haas-ja')||t.includes('gemini')));
+assert(buttons('文字起こし').some(t=>/^haas-ja（約\d+ MB）$/.test(t)));assert(!buttons('文字起こし').some(t=>t.includes('gemini')||t.startsWith('ruri')));
+assert(control('ローカルの文字起こしで使う装置').closest('.srow')===rowOf('文字起こし'));
+input('文字起こしのサービス','local');control('文字起こしのサービス').dispatchEvent(new dom.window.Event('change'));
+assert.equal(localBox('文字起こし').hidden,false);assert.equal(control('文字起こしのモデル名').value,'haas-ja');
+input('文字起こしのサービス','gemini');control('文字起こしのサービス').dispatchEvent(new dom.window.Event('change'));
+const geminiSTT=Object.keys(cfg.stt.candidates).find(m=>m.startsWith('gemini/'));assert(geminiSTT);
+assert.equal(localBox('文字起こし').hidden,true);assert.equal(control('文字起こしのモデル名').value,geminiSTT.slice('gemini/'.length));
+input('文字起こしのモデル名','my-own-model');assert.equal(control('文字起こしのモデル名').value,'my-own-model');  // typing is never overwritten
+input('記憶の検索のサービス','gemini');control('記憶の検索のサービス').dispatchEvent(new dom.window.Event('change'));assert.equal(localBox('記憶の検索').hidden,true);
+assert.equal('gemini/'+control('記憶の検索のモデル名').value,cfg.advanced_presets.map(p=>p.models.embedding).find(m=>m.startsWith('gemini/')));
+input('記憶の検索のサービス','local');control('記憶の検索のサービス').dispatchEvent(new dom.window.Event('change'));assert.equal(localBox('記憶の検索').hidden,false);
+assert.equal(control('記憶の検索のモデル名').value,'ruri-v3-130m');
 for(const id of ['gemini','claude','openai','mixed']){
   input('AI の組み合わせ',id);
   const preset=cfg.advanced_presets.find(p=>p.id===id);

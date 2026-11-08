@@ -31,6 +31,10 @@ class TTSError(RuntimeError):
     """Only safe messages cross the HTTP boundary."""
 
 
+# A restored backup has no voice model; the message must say where to get it.
+MODEL_MISSING = 'この PC には、まだ声のモデルがありません。設定の「見た目と声」で声のモデルを取得してください。'
+
+
 class VoiceConfig(BaseModel):
     model_config = ConfigDict(extra='forbid')
     mode: Literal['design', 'clone'] = 'design'
@@ -278,7 +282,7 @@ def verified_archive(directory, *, allow_download=True, progress=None, cancel=No
     with httpx.Client(follow_redirects=True, timeout=httpx.Timeout(30, read=5), verify=context) as client:
         if not sums.is_file():
             if not allow_download:
-                raise TTSError('設定の声から音声モデルを取得してください。')
+                raise TTSError(MODEL_MISSING)
             response = client.get(RELEASE + '/SHA256SUMS')
             response.raise_for_status()
             sums.write_bytes(response.content)
@@ -302,7 +306,7 @@ def verified_archive(directory, *, allow_download=True, progress=None, cancel=No
                 archive.unlink()
         if not archive.is_file():
             if not allow_download:
-                raise TTSError('設定の声から音声モデルを取得してください。')
+                raise TTSError(MODEL_MISSING)
             partial = directory / 'speech.zip.part'
             offset = partial.stat().st_size if partial.exists() else 0
             headers = {'Range': f'bytes={offset}-'} if offset else {}
@@ -465,8 +469,11 @@ class TTSService:
                 if pipeline.config.tts.enabled and pipeline.config.tts.engine == 'speech.cpp':
                     directory = self.directory(pipeline)
                     self.server.start(pipeline.config.tts, read_voice(directory), directory)
+            except TTSError as error:
+                # Safe and specific, e.g. no voice model after a restore.
+                self.start_error = str(error)
             except Exception:
-                self.start_error = '音声の準備に失敗しました。次の再生で再試行します。'
+                self.start_error = '声の準備に失敗しました。次の再生でもう一度準備します。続く時は「声を変える」から確かめてください。'
 
     def stop(self):
         with self.lock:
@@ -546,7 +553,9 @@ class TTSService:
                 record_error(pipeline.store, 'voice', error)
                 if config.engine == 'speech.cpp':
                     self.server.stop()
-                raise TTSError('音声を作れませんでした。設定を確認して、もう一度再生してください。') from None
+                # TTSError already carries a safe, specific message (missing model, missing voice file).
+                raise TTSError(str(error) if isinstance(error, TTSError) else
+                               '音声を作れませんでした。設定を確認して、もう一度再生してください。') from None
             if path:
                 self.audio_dir.mkdir(parents=True, exist_ok=True)
                 partial = path.with_suffix('.wav.tmp')

@@ -7,7 +7,7 @@ import threading
 import time
 from uuid import uuid4
 
-from cbs.tts import ASSET, CREATE_FLAGS, TTSError, release_directory, verified_archive
+from cbs.tts import ASSET, CREATE_FLAGS, MODEL_MISSING, TTSError, release_directory, verified_archive
 
 # Conservative engine allowance; catalog sizes replace model estimates after installation.
 ARCHIVE_BYTES = 32 * 1024 * 1024
@@ -40,7 +40,7 @@ def select_model(exe, choice='auto', device='auto'):
 def installed_model(exe, quant):
     info = catalog(exe, quant)
     if not info['fetched'] or not Path(info['path']).is_file():
-        raise TTSError('設定の声から音声モデルを取得してください。')
+        raise TTSError(MODEL_MISSING)
     return info['path']
 
 

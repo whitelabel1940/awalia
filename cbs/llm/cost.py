@@ -28,6 +28,8 @@ class StepClient:
     def __getattr__(self, name):
         method = getattr(self.client, name)
         def call(*args, **kwargs):
+            from cbs.shutdown import checkpoint
+            checkpoint()
             recorder = getattr(self.client, 'costs', None)
             if self.purpose == 'autonomy' and recorder is not None and recorder.paused():
                 from cbs.llm import LLMError
@@ -47,6 +49,8 @@ def for_step(client, role, purpose):
 def metered(method):
     @wraps(method)
     def call(self, *args, **kwargs):
+        from cbs.shutdown import checkpoint
+        checkpoint()
         recorder = getattr(self, 'costs', None)
         if recorder is None and getattr(self, '_cost_default', False):
             # Standalone CLI calls have no pipeline to attach the main DB.

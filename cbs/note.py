@@ -1,4 +1,5 @@
 """A public note contains only material already spoken or established."""
+from cbs.storage import dump_trace
 from cbs.llm.cost import for_step
 import json
 from typing import ClassVar
@@ -97,7 +98,7 @@ def fill_diaries(pipeline, *, only_days=None):
             safe_trace = pipeline._safe_trace(call_trace)
             with store.connect() as db:
                 db.execute('INSERT OR IGNORE INTO diaries(character_id,day,summary,partner_comment,created_at,trace_json) VALUES (?,?,?,?,?,?)',
-                    (cid,day,entry.summary,entry.partner_comment,clock.iso(),json.dumps(safe_trace,ensure_ascii=False)))
+                    (cid,day,entry.summary,entry.partner_comment,clock.iso(),dump_trace(safe_trace)))
             trace.append({'day':day,'status':'completed'})
         except Exception as error:
             trace.append({'day':day,'status':'failed','trace':pipeline._safe_trace(call_trace or getattr(error,'trace',None) or {})})

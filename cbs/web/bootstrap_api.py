@@ -132,7 +132,11 @@ def install_bootstrap(app, base, get_pipeline, characters_root, work_root):
                      'progress': f'{stages[initial]}を実行中です。', 'progress_percent': 0}
         async def run():
             try:
-                result = await asyncio.to_thread(work, jid)
+                from cbs.shutdown import run_upkeep
+                result = await asyncio.to_thread(run_upkeep, base.store, work, jid)
+                if base.store.upkeep_stop.is_set():
+                    jobs[jid].update(status='cancelled')
+                    return
                 jobs[jid].update(status='done', progress='完了', progress_percent=100, result=result)
             except Exception as error:
                 from cbs.telemetry import record_error

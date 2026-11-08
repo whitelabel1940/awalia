@@ -48,6 +48,8 @@ await next();await next();await next();assert(root.textContent.includes('OpenRou
 let login=[...root.querySelectorAll('button')].find(b=>b.textContent==='OpenRouter と連携する');assert(!login.closest('.wizard-actions'));
 await login.onclick();await tick();assert.equal(opened.at(-1),'http://127.0.0.1:9987/oauth/openrouter/start');assert.equal(calls.find(c=>c.route==='/api/external/open').headers['X-Awalia-Desktop'],'fake-desktop');
 assert(root.querySelector('.primary').disabled);assert(root.textContent.includes('連携を待っています'));
+assert(root.textContent.includes('購入済みのクレジットが必要です'));assert(root.textContent.includes('もう一度押せます'));
+assert.equal(root.querySelector('a[href="https://openrouter.ai/settings/credits"]').target,'_blank');assert(!login.disabled);
 completed++;cfg.keys.openrouter='set';window.dispatchEvent(new window.Event('focus'));await tick();
 assert(root.textContent.includes('連携できました'));assert(login.disabled);assert.equal(login.nextElementSibling.getAttribute('role'),'status');assert(login.nextElementSibling.classList.contains('success'));assert(!root.querySelector('.primary').disabled);assert(!root.textContent.includes('会話を保存しない提供元'));
 await next();assert(root.textContent.includes('会話を保存しない提供元'));
@@ -58,10 +60,12 @@ const {openExternal}=await import('../cbs/web/static/ui.js');
 delete window.__TAURI__;let tab;
 window.open=(...args)=>tab=args;await openExternal('/oauth/openrouter/start');assert.deepEqual(tab,['http://127.0.0.1:9987/oauth/openrouter/start','_blank','noopener,noreferrer']);
 // Settings login also stays in place, including an already-set key reconnect.
-const {connectionPanel}=await import('../cbs/web/static/settings.js');root.replaceChildren();connectionPanel(root,cfg);
+const {connectionPanel}=await import('../cbs/web/static/settings.js');root.replaceChildren();let refreshed=0;connectionPanel(root,cfg,undefined,{onConnected:()=>refreshed++});
 login=[...root.querySelectorAll('button')].find(b=>b.textContent==='OpenRouter でつなぎ直す');assert(login);
 await login.onclick({preventDefault(){}});await tick();assert(root.textContent.includes('連携を待っています'));
 completed++;document.dispatchEvent(new window.Event('visibilitychange'));await tick();assert(root.textContent.includes('連携できました'));
+// After connecting, the button offers a reconnect and the screen refreshes warnings computed before it.
+assert.equal(login.textContent,'OpenRouter でつなぎ直す');assert.equal(refreshed,1);
 assert(!document.getElementById('error').textContent);
 const {openImport}=await import('../cbs/web/static/import.js');root.replaceChildren();let importReady=false;
 await openImport(root,{onboarding:true,onContinue:()=>{importReady=true;},onPending:()=>{importReady=false;}});

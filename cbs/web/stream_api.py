@@ -36,7 +36,7 @@ def install_stream(app, selected, message_input):
                     safe = error if isinstance(error, LLMError) else LLMError("返答に失敗しました。")
                     emit("error", failure_notice(safe, pipeline.character.model.display_name))
                 finally:
-                    emit("llm_failures", {"notices": FailureState(pipeline.store).notices(pipeline.character.model.display_name)})
+                    emit("llm_failures", {"notices": FailureState(pipeline.store).notices(pipeline.character.model.display_name, pipeline.config)})
                     emit(None, None)
             # Disconnect cancels the consumer, not persistence/extraction of the turn.
             task = asyncio.create_task(asyncio.to_thread(run))

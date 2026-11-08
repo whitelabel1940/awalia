@@ -1,4 +1,5 @@
 """M11: evidence-backed understanding. LLM interprets; code validates and counts."""
+from cbs.storage import dump_trace
 from cbs.llm.cost import for_step
 from datetime import timedelta
 import json
@@ -371,5 +372,5 @@ def rebuild(pipeline, *, force=False, batch_id=None):
         trace = pipeline._safe_trace(getattr(error,'trace',None) or trace)
         trace['error'] = '理解の見直しに失敗しました。観察と前の理解を保持し、次の日に再試行します。'
     with store.connect() as db, store.import_journal(db,batch_id):
-        db.execute('INSERT INTO knowing_runs (character_id,local_day,status,trace_json,created_at) VALUES (?,?,?,?,?)', (cid,today,status,json.dumps(trace,ensure_ascii=False),clock.iso()))
+        db.execute('INSERT INTO knowing_runs (character_id,local_day,status,trace_json,created_at) VALUES (?,?,?,?,?)', (cid,today,status,dump_trace(trace),clock.iso()))
     return {'status':status,**trace.get('application',{})}

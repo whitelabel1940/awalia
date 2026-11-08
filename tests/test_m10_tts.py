@@ -121,10 +121,21 @@ def test_audio_cache_expiry_failure_and_character_scope(pipeline, tmp_path):
         service.synthesize(pipeline, 'こんにちは。', turn_id=6)
     assert server.stops == 1 and not (tmp_path / 'audio' / 'fixture-6.wav').exists()
     transport.fail = False
+    # A specific, safe TTSError (e.g. a restored backup without the voice model) reaches the user unchanged.
+    from cbs.tts import MODEL_MISSING
+    def missing(*args):
+        raise TTSError(MODEL_MISSING)
+    server.start = missing
+    with pytest.raises(TTSError, match='見た目と声'):
+        service.synthesize(pipeline, 'こんにちは。', turn_id=7)
+    # The settings overview shows the same message when the start-up preparation fails.
+    service.startup(pipeline)
+    assert service.start_error == MODEL_MISSING
+    server.start = FakeServer.start.__get__(server)
     service.synthesize(pipeline, 'こんにちは。', turn_id=6)
     assert len(server.starts) == 4
     service.stop()
-    assert server.stops == 2
+    assert server.stops == 3
     with pytest.raises(TTSError):
         service.synthesize(pipeline, 'こんにちは。')
 

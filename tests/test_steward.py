@@ -177,6 +177,14 @@ def test_background_does_not_wait_and_next_turn_sees_model(pipeline):
     trace = pipeline.store.get_trace(second["turn_id"])
     assert trace["Load"]["output"]["domains"][9]["status"] == "tentative"
     assert trace["Load"]["output"]["candidate_memories"][0]["ref"] == "episode:1"
+    # In the session where that turn is still in recent_turns, its episode is not offered again.
+    pipeline.wait_for_steward()
+    pipeline.client = FakeLLMClient(text_responses=["うん"], json_responses=[DIRECT, problems(EMPTY), {"episodes": [], "updates": []}],
+                                    extract_responses=[extraction(EMPTY)])
+    same = pipeline.run(first["id"], "さっきの話")
+    refs = [m["ref"] for m in pipeline.store.get_trace(same["turn_id"])["Load"]["output"]["candidate_memories"]]
+    assert result["turn_id"] in [t["id"] for t in pipeline.store.get_trace(same["turn_id"])["Load"]["output"]["recent_turns"]]
+    assert "episode:1" not in refs
 
 
 @pytest.mark.parametrize("judge", [DIRECT, {"emotional_weight": "high"}])

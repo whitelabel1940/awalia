@@ -1,4 +1,5 @@
 """Episodizer queue, embeddings retrieval and strength calculations."""
+from cbs.storage import dump_trace
 from cbs.llm.cost import for_step
 from cbs.timing import embed as timed_embed, span
 from datetime import date, timedelta
@@ -237,6 +238,15 @@ def retrieve(pipeline, text, recent):
 def enqueue_pending(pipeline, retry=False):
     for job in pipeline.store.memory_jobs(retry=retry, character_id=pipeline.config.character.id):
         submit(pipeline.store, episodize, pipeline, job)
+    # Memories may already be committed when shutdown stops their followups.
+    # Replay those stages without generating/inserting the memories a second time.
+    with pipeline.store.connect() as db:
+        jobs = [dict(row) for row in db.execute(
+            "SELECT j.* FROM memory_jobs j JOIN conversations c ON c.id=j.conversation_id "
+            "JOIN sessions s ON s.id=c.session_id WHERE s.character_id=? AND j.status='completed' "
+            "AND json_extract(trace_text(j.trace_json),'$.followups_pending')=1", (pipeline.config.character.id,))]
+    for job in jobs:
+        submit(pipeline.store, finish_memory_followups, pipeline, job)
 
 
 def _reply_sources(pipeline):
@@ -407,22 +417,39 @@ def episodize(pipeline, job, *, followups=True):
         trace["embedding"] = {"model": pipeline.config.models.embedding, "count": len(texts),
                               "latency_ms": round((perf_counter() - embedding_started) * 1000, 2)}
         trace['knowing_revision'] = knowing_setting['revision']
+        if followups:
+            trace['followups_pending'] = True
         ids = store.save_memories(job, pipeline.config.character.id, output, vectors, turns, trace)
     except Exception as error:
         trace = pipeline._safe_trace(getattr(error, "trace", None) or trace)
         trace["error"] = "Episodizer に失敗しました。会話を保持し、次回 maintenance で再試行します。"
         trace.setdefault("latency_ms", round((perf_counter() - started) * 1000, 2))
         with store.connect() as connection:
-            connection.execute("UPDATE memory_jobs SET status='failed', trace_json=? WHERE id=?", (json.dumps(trace, ensure_ascii=False), job["id"]))
+            connection.execute("UPDATE memory_jobs SET status='failed', trace_json=? WHERE id=?", (dump_trace(trace), job["id"]))
         return
     if not followups:
         return ids
+    finish_memory_followups(pipeline, job)
+
+
+def finish_memory_followups(pipeline, job):
+    store = pipeline.store
+    with store.connect() as db:
+        trace = json.loads(db.execute('SELECT trace_json FROM memory_jobs WHERE id=?', (job['id'],)).fetchone()[0])
+        if not trace.get('followups_pending'):
+            return
+        ids = [row[0] for row in db.execute('SELECT e.id FROM memory_episodes e WHERE e.job_id=? '
+            "AND NOT EXISTS (SELECT 1 FROM episode_link_runs r WHERE r.source_episode=e.id AND r.status='completed')",
+            (job['id'],))]
+    output = EpisodizerOutput.model_validate(trace['response']['parsed'])
     from cbs.inner import update_inner
     update_inner(pipeline, f"memory_job:{job['id']}", {'kind': 'conversation',
         'conversation_id': job['conversation_id'], 'summary': output.model_dump(mode='json')})
     for episode_id in ids or []:
         link_episode(pipeline, episode_id)
     catch_up_diaries(pipeline, job)
+    with store.connect() as db:
+        db.execute("UPDATE memory_jobs SET trace_json=trace_pack(json_set(trace_text(trace_json),'$.followups_pending',0)) WHERE id=?", (job['id'],))
 
 
 def catch_up_diaries(pipeline, job):
@@ -491,7 +518,7 @@ def daily_maintenance(pipeline):
     finally:
         # Scheduling only: never add disk/crypto work to the serialized DB queue.
         worker = getattr(pipeline.store, 'backup_worker', None)
-        if worker is not None and not worker.closed:
+        if worker is not None and not worker.closed and not pipeline.store.upkeep_stop.is_set():
             worker.request_due()
 
 
@@ -507,8 +534,10 @@ def _daily_maintenance(pipeline):
                                   (character_id, today)).rowcount:
             previous = connection.execute('SELECT * FROM memory_maintenance WHERE character_id=? AND local_day=?',
                                           (character_id, today)).fetchone()
-            legacy_trace = json.loads(previous['trace_json'])
-            if all(key in legacy_trace for key in ('now_summary', 'storage', 'knowing', 'diaries', 'forming_notes', 'ex2', 'rp1_shares')):
+            # A shutdown may have left the daily pass running. Replay unfinished
+            # work (the individual notes/digests have durable idempotency keys).
+            legacy_trace = json.loads(previous['trace_json']) if previous['status'] != 'running' else None
+            if legacy_trace is not None and all(key in legacy_trace for key in ('now_summary', 'storage', 'knowing', 'diaries', 'forming_notes', 'ex2', 'rp1_shares')):
                 return
             # M5 may already have maintained this day. Add the new M6 work once,
             # without repeating its monthly digest attempt.
@@ -520,7 +549,7 @@ def _daily_maintenance(pipeline):
             from cbs.sharing import consolidate_shares
             with store.connect() as connection:
                 done = connection.execute("SELECT 1 FROM memory_maintenance WHERE character_id=? AND local_day<=? "
-                    "AND json_extract(trace_json,'$.rp1_shares.completed')=1 LIMIT 1", (character_id, today)).fetchone()
+                    "AND json_extract(trace_text(trace_json),'$.rp1_shares.completed')=1 LIMIT 1", (character_id, today)).fetchone()
             trace['rp1_shares'] = {'completed': True, 'already_completed': bool(done),
                                    'reviews': [] if done else consolidate_shares(pipeline)}
         except Exception:
@@ -596,7 +625,7 @@ def _daily_maintenance(pipeline):
         trace["months"].append(item)
     with store.connect() as connection:
         connection.execute("UPDATE memory_maintenance SET status=?, trace_json=? WHERE character_id=? AND local_day=?",
-                           ("failed" if failed else "completed", json.dumps(pipeline._safe_trace(trace), ensure_ascii=False), character_id, today))
+                           ("failed" if failed else "completed", dump_trace(pipeline._safe_trace(trace)), character_id, today))
 
 
 def inspector_memory(store, character_id):

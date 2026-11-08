@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 import asyncio
 import re
@@ -109,6 +110,9 @@ def create_app(pipeline=None, *, character_id=None, db_path=None, characters_roo
     def selected(character_id: str | None = None):
         return get_pipeline(character_id or pipeline.config.character.id)
 
+    from cbs.shutdown import Shutdown, run_upkeep
+    shutdown_clock = Shutdown(data_dir, pipeline.store.upkeep_stop)
+
     @asynccontextmanager
     async def lifespan(app):
         stopped = asyncio.Event()
@@ -119,9 +123,16 @@ def create_app(pipeline=None, *, character_id=None, db_path=None, characters_roo
 
         async def sweep():
             while not stopped.is_set():
+                try:
+                    await asyncio.to_thread(run_upkeep, pipeline.store, pipeline.store.shrink_once, pipeline.config.storage.full_trace_days)
+                except (OSError, sqlite3.OperationalError):
+                    pass  # Retry a busy/interrupted conversion on the next sweep.
                 for current in list(pipelines.values()):
-                    await asyncio.to_thread(current.maintenance)
-                await asyncio.to_thread(app.state.tts.prune, pipeline.config.tts.cache_days)
+                    if stopped.is_set():
+                        return
+                    await asyncio.to_thread(run_upkeep, pipeline.store, current.maintenance)
+                if not stopped.is_set():
+                    await asyncio.to_thread(run_upkeep, pipeline.store, app.state.tts.prune, pipeline.config.tts.cache_days)
                 try:
                     await asyncio.wait_for(stopped.wait(), timeout=300)
                 except TimeoutError:
@@ -140,32 +151,62 @@ def create_app(pipeline=None, *, character_id=None, db_path=None, characters_roo
         try:
             yield
         finally:
+            shutdown_clock.begin()
+            shutdown_clock.end('uvicorn')
             stopped.set()
             news_task.cancel()
             telemetry_task.cancel()
-            await asyncio.gather(telemetry_task, return_exceptions=True)
-            await asyncio.gather(news_task, return_exceptions=True)
-            app.state.import_jobs.close()
-            app.state.bootstrap_import_jobs.close()
-            await asyncio.to_thread(app.state.voice_download.close)
-            await asyncio.to_thread(app.state.embedding_download.close)
-            await asyncio.to_thread(app.state.stt_download.close)
-            await asyncio.to_thread(app.state.stt_server.close)
-            await stt_task
-            try:
-                await task
-                await asyncio.gather(*list(app.state.bootstrap_tasks))
-            finally:
-                await asyncio.to_thread(app.state.tts.stop)
-                if app.state.voice_candidates is not None:
-                    app.state.voice_candidates.cleanup()
-            for current in list(pipelines.values()):
-                await asyncio.to_thread(current.maintenance, close=True)
-                await asyncio.to_thread(current.wait_for_steward)
-            await asyncio.to_thread(pipeline.store.costs.flush)
-            await asyncio.to_thread(app.state.backup.close)
+            await shutdown_clock.stage('notices', asyncio.gather(telemetry_task, news_task, stt_task, return_exceptions=True), limit=1)
+            # Start all resource stops together, so three 40s installer joins
+            # cannot consume the conversation/Extract persistence budget.
+            async def close_resource(name, function):
+                await shutdown_clock.stage(name, asyncio.to_thread(function), limit=2)
+            await asyncio.gather(*(close_resource(name, function) for name, function in [
+                ('import', app.state.import_jobs.close),
+                ('bootstrap_import', app.state.bootstrap_import_jobs.close),
+                ('voice_download', app.state.voice_download.close),
+                ('embedding_download', app.state.embedding_download.close),
+                ('stt_download', app.state.stt_download.close),
+                ('stt_server', app.state.stt_server.close),
+                ('tts', app.state.tts.stop),
+                *([('voice_candidates', app.state.voice_candidates.cleanup)] if app.state.voice_candidates is not None else []),
+            ]))
+            await shutdown_clock.stage('sweep', task, limit=1)
+            for work in list(app.state.bootstrap_tasks):
+                work.cancel()
+            await shutdown_clock.stage('bootstrap', asyncio.gather(*list(app.state.bootstrap_tasks), return_exceptions=True), limit=1)
+            async def persist():
+                for current in list(pipelines.values()):
+                    await shutdown_clock.stage('conversation_close', asyncio.to_thread(current.maintenance, close=True), limit=1)
+                    await shutdown_clock.stage('extract_steward', asyncio.to_thread(current.wait_for_steward))
+            # Keep time for local cost flush and backup; all limits share one clock.
+            await shutdown_clock.stage('pipelines', persist(), limit=max(0, shutdown_clock.remaining()-3))
+            await shutdown_clock.stage('costs', asyncio.to_thread(pipeline.store.costs.flush), limit=1)
+            await shutdown_clock.stage('backup', asyncio.to_thread(app.state.backup.close), limit=1)
+            shutdown_clock.start('python_workers')
+            # asyncio.run and concurrent.futures may still join native/provider
+            # threads. __main__ keeps the same deadline armed through those joins.
+            if shutdown_clock.exit_process is None:
+                shutdown_clock.end('python_workers')
+                shutdown_clock.finish()
 
     app = FastAPI(title="Awalia", lifespan=lifespan)
+    app.state.shutdown_clock = shutdown_clock
+    def join_workers():
+        # asyncio.run already joined its default executor. Also account for
+        # foreground/Extract/expression/steward executors before disarming the
+        # process watchdog; do not leave it alive after the host returns.
+        from cbs.steward import wait_for_steward
+        for current in list(pipelines.values()):
+            with current._lock:
+                for future in [current._post_future, *current._faces]:
+                    if future is not None:
+                        try:
+                            future.result()
+                        except Exception:
+                            pass  # A failed job must not skip the remaining joins.
+        wait_for_steward(pipeline.store)
+    app.state.join_workers = join_workers
     from cbs.web.resident import install_resident
     install_resident(app, resident_token, shutdown, selected)
     app.state.pipeline = pipeline
@@ -297,7 +338,7 @@ def create_app(pipeline=None, *, character_id=None, db_path=None, characters_roo
     @app.get("/api/llm/failures")
     def llm_failures(pipeline=Depends(selected)):
         from cbs.llm.failures import FailureState
-        return {"notices": FailureState(pipeline.store).notices(pipeline.character.model.display_name)}
+        return {"notices": FailureState(pipeline.store).notices(pipeline.character.model.display_name, pipeline.config)}
 
     @app.get("/api/turns/{turn_id}/trace")
     def trace(turn_id: int, spoilers: bool = False, pipeline=Depends(selected)):

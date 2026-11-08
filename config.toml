@@ -445,8 +445,8 @@ url = "https://raw.githubusercontent.com/whitelabel1940/awalia/main/news/news.js
 [telemetry]
 host = "https://eu.i.posthog.com"
 key = "phc_ow77i8Fc4iGkvvLbWctwZAo2Nagjb7ZGtzghatEVWHsn"
-privacy_url = ""
+privacy_url = "https://github.com/whitelabel1940/awalia/blob/main/PRIVACY.md"
 
 [share]
-url = "https://github.com/whitelabel1940/awalia"
+url = "https://awalia.jp/"
 hashtag = "Awalia"

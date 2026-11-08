@@ -1,4 +1,5 @@
 """Persistent feelings and wants. Only the steward interprets events."""
+from cbs.storage import dump_trace
 import json
 from typing import ClassVar, Literal
 
@@ -53,6 +54,9 @@ def update_inner(pipeline, trigger_ref, event):
     store, cid, trace, run_id = pipeline.store, pipeline.config.character.id, {}, None
     try:
         with store.connect() as db:
+            # Only a fully committed update is terminal. A process can stop
+            # between the durable running marker and its atomic application.
+            db.execute("DELETE FROM inner_update_runs WHERE character_id=? AND trigger_ref=? AND status='running'", (cid, trigger_ref))
             cursor = db.execute("INSERT OR IGNORE INTO inner_update_runs (character_id,created_at,trigger_ref,status) VALUES (?,?,?,'running')",
                                 (cid, clock.iso(), trigger_ref))
             if not cursor.rowcount:
@@ -121,7 +125,7 @@ def update_inner(pipeline, trigger_ref, event):
             db.execute('INSERT INTO monologues (character_id,created_at,text,trigger_ref) VALUES (?,?,?,?)',
                        (cid, clock.iso(), monologue.text, trigger_ref))
             db.execute("UPDATE inner_update_runs SET status='completed',trace_json=? WHERE id=?",
-                       (json.dumps(pipeline._safe_trace(trace), ensure_ascii=False), run_id))
+                       (dump_trace(pipeline._safe_trace(trace)), run_id))
     except Exception as error:
         # Never expose an exception string: provider errors may contain credentials.
         trace = pipeline._safe_trace(trace or getattr(error, 'trace', None) or {})
@@ -130,7 +134,7 @@ def update_inner(pipeline, trigger_ref, event):
             try:
                 with store.connect() as db:
                     db.execute("UPDATE inner_update_runs SET status='failed',trace_json=? WHERE id=?",
-                               (json.dumps(trace, ensure_ascii=False), run_id))
+                               (dump_trace(trace), run_id))
             except Exception:
                 pass  # A failed diagnostic write must not propagate into a conversation/activity.
 
