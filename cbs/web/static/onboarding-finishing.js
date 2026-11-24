@@ -42,7 +42,21 @@ export async function onboardingFinishing(parent,{name,secondPartner=false,onBac
     }
     return next;
   }});
-  const voicePage=(step,title,next)=>({id:'voice-'+step,chapter:'声',render:async p=>{p.append(node('h2',title));const editor=await ensureVoice();p.append(voiceHost);editor.renderStep(voiceHost,step);},next});
+  // The external server pages are for people who run their own server; each says what to enter and offers the way back.
+  const externalHelp={
+    url:'自分で用意した音声サーバー（OpenAI 互換）の URL を、/v1 まで入れます。',
+    model:'サーバーで使うモデル名です。サーバーの説明書にあります。決まっていなければ空のままで進めます。',
+    name:'サーバーが用意している声の名前です（例: alloy）。サーバーの説明書にあります。',
+    style:'声の調子を指示文でサーバーへ渡すかどうかです。分からなければ「付けない」のままで進めます。'};
+  const voicePage=(step,title,next)=>({id:'voice-'+step,chapter:'声',render:async p=>{
+    p.append(node('h2',title));
+    if(externalHelp[step])p.append(node('p',externalHelp[step],'muted'));
+    const editor=await ensureVoice();p.append(voiceHost);editor.renderStep(voiceHost,step);
+    if(externalHelp[step]&&!settingsEntry){
+      p.append(node('p','音声サーバーを用意していなければ、ローカルモデルでこのパソコンだけで声を作れます。','muted'));
+      action(p,'ローカルモデルに戻る',()=>flow.go('voice-engine')).classList.add('quiet');
+    }
+  },next});
   const screens=[
     {backAction:()=>onBack?.(),...copy('look','見た目',async()=>{await ensureLook();if(look.ownedImages)look.image.use='sheet';return look.ownedImages?'look-faces':'look-style';},'次へ',()=> 'voice'),render:async p=>{
       await explanation(p,'look',name);await ensureLook();

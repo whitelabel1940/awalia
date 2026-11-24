@@ -17,6 +17,7 @@ from cbs.llm import FakeLLMClient, RoutingLLMClient
 SETTINGS_LOCK = RLock()
 
 ALLOWED = {
+    'research': {'enabled', 'shadow'},
     'display': {'split_replies', 'delay_user', 'read_seconds', 'typing_seconds', 'user_delay_seconds', 'bubble_max_seconds', 'split_min_chars', 'split_three_chars'},
     'costs': {'monthly_guide_usd', 'pause_autonomy'},
     'stt': {'auto_send', 'max_seconds', 'silence_seconds', 'silence_rms', 'device'},
@@ -25,13 +26,17 @@ ALLOWED = {
     "inner": {"show_monologue"},
     "autonomy": {"inner_life", "inner_life_interval_hours", "research", "research_daily_max", "activities_daily_max", "tools",
                  "quiet_start_hour", "quiet_end_hour", "opening", "reserved_gap_hours"},
-    "pipeline": {"post_check"}, "models": {"actor", "judge", "steward", "embedding", "research", "vision", "stt"},
+    "pipeline": {"post_check"}, "models": {"actor", "decision", "judge", "steward", "embedding", "research", "vision", "stt"},
     "llm": {"providers", "mode", "zdr_only"},
     "simple": {"actor", "judge", "stt"},
 }
 
 
 def settings_candidate(cfg, body, data_dir):
+    if 'decision' in body.get('models', {}) and body['models']['decision'] is None:
+        # TOML has no null. Persist the equivalent disabled value explicitly so
+        # a restart cannot mistake it for a legacy setting needing a preset.
+        body['models']['decision'] = ''
     base = cfg.model_dump()
     if cfg.llm.mode == "simple":
         base["models"] = cfg.llm.advanced_models or base["models"]
@@ -47,6 +52,9 @@ def settings_candidate(cfg, body, data_dir):
     new = apply_llm_mode(Config.model_validate(overlay(base, body), strict=True))
     new._data_dir = data_dir
     for role, value in body.get("models", {}).items():
+        if role == 'decision':
+            # Models validates both the provider and the supported Decision model.
+            continue
         if role in {"vision", "stt"} and value == "":
             continue
         provider, sep, model = value.partition("/")
@@ -105,6 +113,8 @@ def install_settings(app, pipeline, pipelines, data_dir, selected):
     install_embedding(app, pipeline, data_dir)
     from cbs.web.backup_api import install_backup
     install_backup(app, pipeline, pipelines, data_dir)
+    from cbs.web.research_api import install_research
+    install_research(app, pipeline)
 
     def current():
         cfg = pipeline.config
@@ -136,6 +146,10 @@ def install_settings(app, pipeline, pipelines, data_dir, selected):
         # Release builds (no .git beside the app) do not offer the developer screen.
         from cbs.config import ROOT
         values['developer'] = (ROOT / '.git').exists()
+        if values['developer']:
+            values['research_status'] = pipeline.store.research.status()
+        else:
+            values.pop('research', None)
         values['backup'] = cfg.backup.model_dump()
         values['backup_status'] = app.state.backup.status()
         values['costs'] = {k: getattr(cfg.costs, k) for k in ALLOWED['costs']}
@@ -203,6 +217,10 @@ def install_settings(app, pipeline, pipelines, data_dir, selected):
     def update_settings(body: dict, request: Request):
         try:
             for section, values in body.items():
+                if section == 'research':
+                    from cbs.config import ROOT
+                    if not (ROOT / '.git').exists():
+                        raise ValueError()
                 from cbs.web.resident import is_resident
                 extra = {'idle_nudge'} if section == 'autonomy' and (is_resident(request) or 'opening' in values) else set()
                 if section not in ALLOWED or not isinstance(values, dict) or set(values) - (ALLOWED[section] | extra):
@@ -278,6 +296,7 @@ def install_settings(app, pipeline, pipelines, data_dir, selected):
             app.state.tts.reconfigure()
             app.state.start_tts(pipeline)
         app.state.prepare_stt()
+        pipeline.store.research.start()
         return settings(request)
 
     def save_key(provider, value):

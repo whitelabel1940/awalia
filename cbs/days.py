@@ -163,7 +163,7 @@ class DaysStore:
 
 
 def calendar_days(store, cid, config):
-    today = clock.now().date()
+    today = clock.today()
     days = store.days_state(cid)['days']
     result = []
     for item in days:
@@ -181,7 +181,7 @@ def calendar_days(store, cid, config):
     with store.connect() as db:
         first_row = db.execute("SELECT t.created_at FROM turns t JOIN sessions s ON s.id=t.session_id WHERE s.character_id=? AND t.status='completed' AND t.kind='conversation' AND trim(t.user_text)!='' ORDER BY julianday(t.created_at),t.id LIMIT 1", (cid,)).fetchone()
     if first_row:
-        first = clock.parse(first_row[0]).date()
+        first = clock.local_date(first_row[0])
         if config.hundred_days:
             occurs = first + timedelta(days=100)
             if occurs >= today:
@@ -199,8 +199,8 @@ def calendar_days(store, cid, config):
 
 
 def days_context(store, cid, config, *, user_reply=False):
-    today = clock.now().date().isoformat()
-    start = clock.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today = clock.today().isoformat()
+    start = clock.day_start(today)
     with store.connect() as db:
         used = {r[0] for r in db.execute('SELECT ref FROM day_mentions WHERE character_id=? AND day=?', (cid, today))}
         user_turn = db.execute("SELECT 1 FROM turns t JOIN sessions s ON s.id=t.session_id WHERE s.character_id=? AND t.status='completed' AND t.kind='conversation' AND trim(t.user_text)!='' AND julianday(t.created_at)>=julianday(?) AND julianday(t.created_at)<julianday(?) LIMIT 1", (cid, start.isoformat(), (start+timedelta(days=1)).isoformat())).fetchone()

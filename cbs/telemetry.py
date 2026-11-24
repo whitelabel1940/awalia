@@ -17,8 +17,8 @@ from cbs import clock
 from cbs.config import ROOT
 from cbs.news import current_version
 
-# Keep exactly the same set as onboarding.js ONBOARDING_STEPS.
-ONBOARDING_STEPS = frozenset('''welcome ai method oauth combination kind actor role-actor role-judge role-embedding role-research role-vision download keys zdr check summary partner
+# Keep exactly the same list, in the same order, as onboarding.js ONBOARDING_STEPS.
+ONBOARDING_ORDER = tuple('''welcome ai method oauth combination kind actor role-actor role-judge role-embedding role-research role-vision download keys zdr check summary partner
 bringing profile import world partner-fields user-fields now likes now-question scenes scenes-question
 open-style depth depth-question life life-question more more-question checks review confirmation review-wait
 look look-style look-profile look-face look-hair look-outfit look-confirm look-sheet look-single look-faces
@@ -26,6 +26,7 @@ look-cover look-cover-import voice voice-autoplay voice-engine voice-download vo
 voice-reference voice-url voice-model voice-name voice-style voice-confirm voice_input input-model
 input-download input-device input-options input-confirm export export-trial export-options export-confirm done
 entry-summary entry-actor entry-custom'''.split())
+ONBOARDING_STEPS = frozenset(ONBOARDING_ORDER)
 STAGES = frozenset('reading questions building validation review saving'.split())
 WHERE = frozenset('reply bootstrap import backup voice autonomy server'.split())
 PROVIDERS = frozenset('gemini openai anthropic openrouter local'.split())
@@ -164,7 +165,9 @@ class Telemetry:
 
     def step(self, step, first):
         if step in ONBOARDING_STEPS and type(first) is bool:
-            self._event('onboarding_step', {'step': step, 'first': first})
+            # Reports sort values as text; the flow-order number keeps them in screen order.
+            number = ONBOARDING_ORDER.index(step) + 1
+            self._event('onboarding_step', {'step': f'{number:02d} {step}', 'first': first})
 
     def share(self, where, service):
         if where in {'start', 'diary'} and service in {'x', 'bluesky', 'misskey', 'save', 'copy'}:

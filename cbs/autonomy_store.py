@@ -284,20 +284,25 @@ class AutonomyStore:
     def _fact_thread(self, db, character_id, fact_id, fact, source_turn):
         saved = db.execute('SELECT * FROM user_facts WHERE id=? AND character_id=?', (fact_id,character_id)).fetchone()
         policy = self.fact_policy(saved, db)
-        if fact.private and not policy['allow_mention']:
+        if not fact.follow_up and fact.follow_up_thread:
+            # An outcome closes even a paused question; changing permission must not revive it.
+            for thread in db.execute("SELECT * FROM threads WHERE character_id=? AND id=? AND kind='follow_up' AND status IN ('open','blocked')",
+                                     (character_id, fact.follow_up_thread)).fetchall():
+                self._thread_status(db, thread, 'used')
+        if fact.private and not policy['follow_up_allowed']:
             due = (clock.parse(fact.event_date) + timedelta(days=1)).isoformat() if fact.event_date else None
-            for thread in db.execute("SELECT * FROM threads WHERE character_id=? AND status='open' AND (source_ref=? OR (id=? AND kind='follow_up' AND due_at=?))", (character_id,f'fact:{fact_id}',fact.follow_up_thread,due)).fetchall():
+            for thread in db.execute("SELECT * FROM threads WHERE character_id=? AND kind='follow_up' AND status='open' AND (source_ref=? OR (id=? AND due_at=?))", (character_id,f'fact:{fact_id}',fact.follow_up_thread,due)).fetchall():
                 self._thread_status(db,thread,'dropped')
             return
         if not fact.event_date or not fact.follow_up:
             if fact.private and not fact.follow_up:
-                for thread in db.execute("SELECT * FROM threads WHERE character_id=? AND source_ref=? AND status='open'", (character_id,f'fact:{fact_id}')).fetchall():
+                for thread in db.execute("SELECT * FROM threads WHERE character_id=? AND source_ref=? AND kind='follow_up' AND status IN ('open','blocked')", (character_id,f'fact:{fact_id}')).fetchall():
                     self._thread_status(db,thread,'dropped')
             return
         due = (clock.parse(fact.event_date) + timedelta(days=1)).isoformat()
         # A past/current temporary event can be checked at the next conversation,
         # including later the same day. Future events retain the normal due date.
-        if fact.private and policy['private_category'] == 'temporary_health' and fact.event_date <= clock.now().date():
+        if fact.private and policy['private_category'] == 'temporary_health' and fact.event_date <= clock.today():
             due = saved['learned_at']
         existing = db.execute("SELECT * FROM threads WHERE character_id=? AND kind='follow_up' AND id=? AND due_at=?",
                               (character_id, fact.follow_up_thread, due)).fetchone()
@@ -343,7 +348,8 @@ class AutonomyStore:
                     if fact and fact['private']:
                         policy = self.fact_policy(fact, db)
                         t.update(private=True, private_category=policy['private_category'], allow_mention=policy['allow_mention'],
-                                 may_initiate=policy['allow_mention'] and fact['status']=='current' and t['kind']=='follow_up' and eligible(t))
+                                 may_initiate=fact['status']=='current' and (policy['allow_mention'] or
+                                     (policy['follow_up_allowed'] and t['kind']=='follow_up' and eligible(t))))
                 days = max(0, (clock.now() - clock.parse(t['weight_at'] or t['created_at'])).total_seconds() / 86400)
                 t['weight'] *= (1 - decay) ** days
                 t['ref'] = f"thread:{t['id']}"
@@ -353,6 +359,16 @@ class AutonomyStore:
                                      'after': json.loads(r['after_json'])} for r in db.execute('SELECT * FROM thread_history WHERE thread_id=? ORDER BY id', (t['id'],))]
         result.sort(key=lambda t: (-t['weight'], t['id']))
         return [t for t in result if eligible(t) and (not t.get('private') or t['may_initiate'])] if eligible_only else result
+
+    def threads_told_in_conversation(self, character_id, conversation_id):
+        """Threads already told in this conversation, so a follow-up question can still see them."""
+        with self.connect() as db:
+            row = db.execute('SELECT started_at FROM conversations WHERE id=?', (conversation_id,)).fetchone()
+        if not row:
+            return []
+        started = clock.parse(row['started_at'])
+        return [t for t in self.list_threads(character_id) if t['status'] == 'used' and (not t.get('private') or t.get('allow_mention'))
+                and t['told_at'] and clock.parse(t['told_at']['iso']) >= started]
 
     def sync_plan_threads(self, character_id):
         with self.connect() as db:
@@ -400,13 +416,14 @@ class AutonomyStore:
             return [{**dict(r), 'trace': json.loads(r['trace_json'])} for r in db.execute('SELECT * FROM proactive_runs WHERE character_id=? ORDER BY id', (character_id,))]
 
     def autonomy_budget(self, character_id):
-        today = clock.now().date().isoformat()
+        today = clock.today().isoformat()
+        day = clock.sql_day('created_at')
         with self.connect() as db:
-            rows = db.execute("SELECT kind, COUNT(*) AS n FROM activities WHERE character_id=? AND substr(created_at,1,10)=? GROUP BY kind", (character_id, today)).fetchall()
-            nested_searches = db.execute("SELECT COUNT(*) FROM activities WHERE character_id=? AND kind='world_activity' AND queries_json!='[]' AND substr(created_at,1,10)=?", (character_id, today)).fetchone()[0]
-            nested_reads = db.execute("SELECT COUNT(*) FROM activities a JOIN reading_receipts r ON r.activity_id=a.id WHERE a.character_id=? AND a.kind='world_activity' AND substr(a.created_at,1,10)=?", (character_id, today)).fetchone()[0]
+            rows = db.execute("SELECT kind, COUNT(*) AS n FROM activities WHERE character_id=? AND " + day + "=? GROUP BY kind", (character_id, today)).fetchall()
+            nested_searches = db.execute("SELECT COUNT(*) FROM activities WHERE character_id=? AND kind='world_activity' AND queries_json!='[]' AND " + day + "=?", (character_id, today)).fetchone()[0]
+            nested_reads = db.execute("SELECT COUNT(*) FROM activities a JOIN reading_receipts r ON r.activity_id=a.id WHERE a.character_id=? AND a.kind='world_activity' AND " + clock.sql_day('a.created_at') + "=?", (character_id, today)).fetchone()[0]
             # Every claimed judgment consumes the daily allowance, including silence/failure.
-            idle = db.execute("SELECT COUNT(*) FROM proactive_runs WHERE character_id=? AND mode='idle' AND substr(created_at,1,10)=?", (character_id, today)).fetchone()[0]
+            idle = db.execute("SELECT COUNT(*) FROM proactive_runs WHERE character_id=? AND mode='idle' AND " + day + "=?", (character_id, today)).fetchone()[0]
         counts = {r['kind']: r['n'] for r in rows}
         from cbs.config import AutonomyConfig
         cfg = getattr(self, 'autonomy_config', AutonomyConfig())

@@ -55,3 +55,31 @@ def test_found_output_models():
 @pytest.mark.parametrize('name', sorted(MODELS))
 def test_strict_schema(name):
     assert problems(to_strict_json_schema(MODELS[name])) == []
+
+
+def limits(node):
+    from cbs.llm.openai_client import VALUE_LIMITS
+    if isinstance(node, dict):
+        return sum(k in VALUE_LIMITS for k in node) + sum(limits(v) for v in node.values())
+    if isinstance(node, list):
+        return sum(limits(v) for v in node)
+    return 0
+
+
+@pytest.mark.parametrize('name', sorted(MODELS))
+def test_google_on_openrouter_gets_the_schema_without_value_limits(name):
+    # Google behind OpenRouter rejects some schemas as "too many states" (EpisodizerOutput, 2026-11-16).
+    from cbs.llm.openai_client import response_schema
+    sent = response_schema('openrouter', 'google/gemini-3.8-flash', MODELS[name])
+    assert limits(sent) == 0 and problems(sent) == []
+    # Other models and routes keep the strict schema unchanged.
+    assert response_schema('openrouter', 'openai/gpt-6-luna', MODELS[name]) == to_strict_json_schema(MODELS[name])
+    assert response_schema('openai', 'google/x', MODELS[name]) == to_strict_json_schema(MODELS[name])
+
+
+def test_reply_still_validated_against_the_full_schema():
+    from pydantic import ValidationError
+    from cbs.memory import EpisodizerOutput
+    too_many = {'episodes': [{'summary': 's', 'details': 'd', 'importance': .5, 'pinned': False}] * 6, 'user_facts': []}
+    with pytest.raises(ValidationError):
+        EpisodizerOutput.model_validate(too_many)

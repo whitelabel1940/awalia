@@ -144,6 +144,7 @@ class Proactive(AutonomyField):
     spoken_context: SkipJsonSchema[list[dict]] = Field(default_factory=list)
     early_domain: str | None = None
     private_topic: bool = False
+    fact_ref: str | None = None
     speak: bool
     reason: str
     thread_ref: str | None = None
@@ -800,8 +801,10 @@ def proactive(pipeline, session_id, mode='opening', *, cancel=None):
         model = store.current_model(pipeline.character)
         from cbs.sharing import spoken_context, thread_text
         activities = store.conversation_activities(cid)
+        private_policy = store.private_context(cid)
         spoken = spoken_context(pipeline, [thread_text(t) for t in threads] +
-                                [a['topic'] + '\n' + a['summary'] for a in activities])
+                                [a['topic'] + '\n' + a['summary'] for a in activities] +
+                                [f['content'] for f in private_policy if f['allow_mention']])
         decision, trace = ask(pipeline, 'proactive', Proactive,
             {'mode': mode, 'habit': habit, 'important_days': important_days, 'now': clock.stamp(clock.iso()), 'gap_seconds': gap_seconds, 'threads': threads,
              'frequency': pipeline.config.autonomy.opening,
@@ -817,22 +820,25 @@ def proactive(pipeline, session_id, mode='opening', *, cancel=None):
              'recent_turns': store.history(last['session_id'])[-6:] if last else [],
              'spoken_context': spoken,
              'activities': activities, 'world_facts': store.list_world_facts(cid),
-             'private_facts_policy': store.private_context(cid)}, pipeline.config.models.judge)
+             'private_facts_policy': private_policy}, pipeline.config.models.judge)
         result = decision.model_dump(exclude={'private_topic'})
         available = {t['ref'] for t in threads}
         # thread_ref remains compatible with older callers; want_ref is the first-stage choice.
         chosen = decision.want_ref or decision.thread_ref
+        allowed_fact = next((f for f in private_policy if f['ref'] == decision.fact_ref and f['allow_mention']), None)
         result.update(want_ref=chosen, thread_ref=chosen)
         available_days = {d['id'] for d in important_days['today'] if d['may_mention']}
         if set(decision.day_refs) - available_days:
             result.update(speak=False, reason='大切な日の候補が利用不可')
+        elif decision.fact_ref and (not allowed_fact or chosen or not decision.private_topic):
+            result.update(speak=False, reason='選択された私的な事実は利用不可')
         elif mode == 'habit' and (chosen or decision.early_domain or decision.private_topic):
             result.update(speak=False, reason='習慣以外の話題はこの枠では選びません。')
         elif decision.want_ref and decision.thread_ref and decision.want_ref != decision.thread_ref:
             result.update(speak=False, reason='想いとスレッドの参照が一致しない')
         elif chosen and chosen not in available:
             result.update(speak=False, reason='選択されたスレッドは利用不可')
-        elif decision.private_topic and not any(t['ref']==chosen and t.get('private') and t.get('may_initiate') for t in threads):
+        elif decision.private_topic and not allowed_fact and not any(t['ref']==chosen and t.get('private') and t.get('may_initiate') for t in threads):
             result.update(speak=False, reason='私的な話題は本人から話すときだけ使います。')
         elif decision.early_domain and (decision.early_domain not in {d['id'] for d in early} or chosen or decision.private_topic):
             result.update(speak=False, reason='使い始めの話題の候補・上限・選択が一致しない')

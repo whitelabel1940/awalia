@@ -6,7 +6,7 @@ from threading import Lock
 
 from cbs import clock
 
-PURPOSES = {'chat': '会話', 'memory': '記憶の整理', 'autonomy': '自主活動',
+PURPOSES = {'chat': '会話', 'memory': '記憶の整理', 'autonomy': '自主活動', 'research': '判断の研究',
             'media': '写真と声', 'import': '取り込み', 'welcome': '迎える手順', 'other': 'その他'}
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS cost_calls (

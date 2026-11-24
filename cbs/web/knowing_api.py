@@ -57,7 +57,8 @@ def knowing_note(pipeline, *, private=False):
 def install_knowing(app, selected):
     @app.get('/api/note/private-settings')
     def private_settings(pipeline=Depends(selected)):
-        return {'categories': pipeline.store.private_settings(pipeline.config.character.id)}
+        return {'categories': pipeline.store.private_settings(pipeline.config.character.id),
+                'mention_notice': pipeline.store.private_mention_notice(pipeline.config.character.id)}
 
     @app.put('/api/note/private-settings')
     def save_private_settings(body: PrivatePreferences, pipeline=Depends(selected)):
@@ -77,6 +78,7 @@ def install_knowing(app, selected):
                 raise HTTPException(404,'事実がありません。')
             db.execute('UPDATE user_facts SET mention_override=? WHERE id=?', (body.mention_override,fact_id))
             store._sync_private_threads(db,cid)
+            db.execute('DELETE FROM private_mention_notices WHERE character_id=?', (cid,))
         return {'ok':True}
 
     @app.get('/api/note/private')

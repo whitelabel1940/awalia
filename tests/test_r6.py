@@ -13,7 +13,7 @@ import pytest
 
 from cbs import clock
 from cbs.config import load_config
-from cbs.telemetry import ONBOARDING_STEPS, Telemetry, explanation, send_batch
+from cbs.telemetry import ONBOARDING_ORDER, ONBOARDING_STEPS, Telemetry, explanation, send_batch
 
 
 @pytest.fixture
@@ -166,7 +166,7 @@ def test_retry_expiry_and_latest_200(telemetry, monkeypatch, caplog):
             raise httpx.ConnectError(t.config.telemetry.key)
         monkeypatch.setattr('cbs.telemetry.send_batch', failed)
         asyncio.run(t.flush())
-        assert [e['properties']['step'] for e in queued(t)] == ['ai']
+        assert [e['properties']['step'] for e in queued(t)] == ['02 ai']
         calls = []
         async def fake(host, key, batch):
             calls.append(batch)
@@ -176,7 +176,7 @@ def test_retry_expiry_and_latest_200(telemetry, monkeypatch, caplog):
         asyncio.run(t.flush())
         assert not queued(t) and len(calls) == 1
         assert len(t.sent()) == 200
-        assert t.sent()[0]['properties']['step'] == 'partner'
+        assert t.sent()[0]['properties']['step'] == '18 partner'
     assert t.config.telemetry.key not in (t.root / 'sent.jsonl').read_text(encoding='utf-8')
     assert t.config.telemetry.key not in caplog.text
 
@@ -227,7 +227,7 @@ def test_transport_contract_with_mock_transport(monkeypatch):
 def test_steps_match_client_list():
     source = Path('cbs/web/static/onboarding.js').read_text(encoding='utf-8')
     match = re.search(r'ONBOARDING_STEPS = `([^`]+)`', source)
-    assert set(match[1].split()) == ONBOARDING_STEPS
+    assert tuple(match[1].split()) == ONBOARDING_ORDER and set(ONBOARDING_ORDER) == ONBOARDING_STEPS
 
 
 def test_startup_then_hourly_background_schedule(telemetry, monkeypatch):
@@ -269,7 +269,7 @@ def test_opt_out_during_network_does_not_block_or_touch_new_id(telemetry, monkey
         await task
     asyncio.run(scenario())
     assert not t.sent()
-    assert [e['properties']['step'] for e in queued(t)] == ['partner']
+    assert [e['properties']['step'] for e in queued(t)] == ['18 partner']
 
 
 def test_reply_and_import_failures_are_captured(telemetry, pipeline, tmp_path, monkeypatch):

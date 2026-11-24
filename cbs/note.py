@@ -42,9 +42,9 @@ def fill_diaries(pipeline, *, only_days=None):
     from cbs.pipeline import INTERNAL_MARKERS
     from cbs.voice_text import voice_call
     store, cid = pipeline.store, pipeline.config.character.id
-    today = clock.now().date()
+    today = clock.today()
     first = today - timedelta(days=14)
-    window = (clock.parse(first).isoformat(), clock.parse(today).isoformat())
+    window = (clock.day_start(first).isoformat(), clock.day_start(today).isoformat())
     with store.connect() as db:
         # Imported sessions and bootstrap seeds never become shared diaries.
         rows = db.execute('SELECT m.* FROM memory_episodes m JOIN conversations c ON c.id=m.conversation_id '
@@ -70,35 +70,39 @@ def fill_diaries(pipeline, *, only_days=None):
                 spoken.setdefault(turn['conversation_id'], []).append({'speaker':role,'at':at,'text':text})
     days = {}
     for row in rows:
-        start, end = clock.parse(row['started_at']).date(), clock.parse(row['ended_at']).date()
+        start, end = clock.local_date(row['started_at']), clock.local_date(row['ended_at'])
         utterances = [u for u in spoken.get(row['conversation_id'], [])
                       if clock.parse(row['started_at']) <= clock.parse(u['at']) <= clock.parse(row['ended_at'])]
-        for day in sorted({clock.parse(u['at']).date() for u in utterances}):
+        for day in sorted({clock.local_date(u['at']) for u in utterances}):
             if first <= day < today and day.isoformat() not in completed:
                 entry = {k:row[k] for k in ('id','started_at','ended_at','summary','details')}
                 if start != end:
-                    # A 4am conversation boundary can cross midnight. Ground only
-                    # this date's words without inventing diary dates in gaps.
-                    entry['day_utterances'] = [u for u in utterances if clock.parse(u['at']).date()==day]
+                    # A conversation can cross the 4am day start. Ground only
+                    # this day's words without inventing diary dates in gaps.
+                    entry['day_utterances'] = [u for u in utterances if clock.local_date(u['at'])==day]
                 days.setdefault(day.isoformat(), []).append(entry)
     trace = []
     for day, memories in sorted(days.items()):
         if only_days is not None and day not in only_days:
             continue
         # A failed/pending job must not produce a permanently partial diary.
-        if any(clock.parse(c['started_at']).date().isoformat()<=day<=clock.parse(c['last_activity_at']).date().isoformat() for c in pending):
+        if any(clock.local_date(c['started_at']).isoformat()<=day<=clock.local_date(c['last_activity_at']).isoformat() for c in pending):
             continue
         call_trace = {}
         try:
-            context = {'day':day, 'memories':memories, 'previous_diary':latest_diary(store,cid,before=day)}
+            # The diary is written and read after the day is over (from 4am the next day at the earliest).
+            context = {'day':day, 'day_time':clock.stamp(day), 'written_at':clock.stamp(clock.iso()),
+                       'memories':memories, 'previous_diary':latest_diary(store,cid,before=day)}
             entry = voice_call(pipeline, 'note_diary', DiaryEntry, context,
                                lambda e: [e.summary, e.partner_comment], purpose='memory', trace=call_trace)
             if any(INTERNAL_MARKERS.search(v) for v in entry.model_dump().values()):
                 raise ValueError('internal marker')
             safe_trace = pipeline._safe_trace(call_trace)
             with store.connect() as db:
-                db.execute('INSERT OR IGNORE INTO diaries(character_id,day,summary,partner_comment,created_at,trace_json) VALUES (?,?,?,?,?,?)',
+                saved = db.execute('INSERT OR IGNORE INTO diaries(character_id,day,summary,partner_comment,created_at,trace_json) VALUES (?,?,?,?,?,?)',
                     (cid,day,entry.summary,entry.partner_comment,clock.iso(),dump_trace(safe_trace)))
+                if saved.rowcount:
+                    store.consume_private_followups(db, cid, call_trace.get('used_private_followups', []))
             trace.append({'day':day,'status':'completed'})
         except Exception as error:
             trace.append({'day':day,'status':'failed','trace':pipeline._safe_trace(call_trace or getattr(error,'trace',None) or {})})
@@ -241,11 +245,11 @@ def note_header(store, cid):
         expression = db.execute("SELECT t.expression FROM turns t JOIN sessions s ON s.id=t.session_id "
             "WHERE s.character_id=? AND t.status='completed' AND t.expression IN (" + ','.join('?' for _ in EXPRESSIONS) +
             ") ORDER BY julianday(COALESCE(t.assistant_at,t.created_at)) DESC,t.id DESC LIMIT 1", (cid, *EXPRESSIONS)).fetchone()
-    days = {clock.parse(r['created_at']).date() for r in rows}
+    days = {clock.local_date(r['created_at']) for r in rows}
     first = min(days) if days else None
     return {'current_expression': expression[0] if expression else 'neutral',
             'days': {'first_day': first.isoformat() if first else None,
-                     'elapsed_days': (clock.now().date() - first).days if first else 0,
+                     'elapsed_days': (clock.today() - first).days if first else 0,
                      'talked_days': len(days)}}
 
 

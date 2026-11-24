@@ -17,7 +17,7 @@ assert.equal(weeks[0].querySelector('summary').textContent,'10月19日の週（2
 assert.equal(recentActivities(root,[]),undefined);
 const header=partnerHeader(root,{name:'ユキ',now_summary:'重複してはいけない要約',current_expression:'neutral'},{cover:true,expressions:['neutral']});assert(header.classList.contains('has-cover'));assert.equal(header.querySelector('h2').textContent,'ユキ');assert(!header.textContent.includes('重複してはいけない要約'));assert.equal(header.querySelector('.note-now'),null);
 await knowingScreen(root,{stopped:false,understandings:[],facts:[]},'ユキ',async()=>{});
-for(const text of ['あなたが一度話した健康・宗教・政治','ユキのほうから後で触れてよいか','一度だけやさしく','話していないことを推測したり持ち出したりはしません'])assert(root.textContent.includes(text));
+for(const text of ['ユキからも日常の話題にしてよい','今の話に関係がある時に触れ、毎回は持ち出しません','チェックなしでは基本的に触れず','一時的な体調の出来事だけは、チェックなしでも一度だけやさしく','話していない事情を推測したり','事実ごとの「触れないで」が優先'])assert(root.textContent.includes(text));
 const privateSection=[...root.querySelectorAll('details')].find(e=>e.querySelector('summary')?.textContent==='もっとプライベートなこと');privateSection.open=true;privateSection.dispatchEvent(new window.Event('toggle'));await new Promise(r=>setTimeout(r,10));assert(root.textContent.includes('ユキからこの話に触れてよい？'));assert(!root.textContent.includes('テスト係'));
 for(const text of ['関わり方','好きなこと・気になること','今のこと'])assert([...root.querySelectorAll('h3')].some(e=>e.textContent===text));
 const css=readFileSync(new URL('../cbs/web/static/screens.css',import.meta.url),'utf8');assert(css.includes('#screen h3,.set h3'));assert(css.includes('#screen h4,.set h4'));assert(css.includes('@media(min-width:768px){.nav .partner'));assert(css.includes('#screen .diary-entry h4{font-size:var(--type-body)}'));

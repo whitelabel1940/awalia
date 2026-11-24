@@ -6,23 +6,38 @@ import {sequence,explanation,chapters,choiceCards,onboardingChrome,notice,partne
 import {modelRoleFields} from './model-role.js';
 import {embeddingDownload} from './embedding-download.js';
 
-export const roleNames={actor:'会話',judge:'判断',steward:'記憶の整理',embedding:'記憶の検索',research:'調べもの',vision:'画像の読み取り'};
-export function modelLabel(model,cfg,role='actor'){if(!model)return '使わない';const choices=[...Object.values(cfg.onboarding.actor_choices).flat(),...(cfg.model_candidates?.actor||cfg.simple.actor_candidates||[])];const match=choices.find(c=>c.model===model);if(role==='actor'&&match)return match.label;const [service,...parts]=model.split('/');return `${({openrouter:'OpenRouter',openai:'OpenAI',gemini:'Gemini',anthropic:'Claude',local:'ローカル'})[service]||service} の ${parts.at(-1)}`;}
+export const roleNames={actor:'会話',judge:'返事の確認',decision:'場面の読み取り',steward:'記憶の整理',embedding:'記憶の検索',research:'調べもの',vision:'画像の読み取り'};
+export function decisionChoices(models){
+  const providers=new Set(['actor','judge'].map(r=>models[r]?.split('/')[0]));
+  return ['gemini','openrouter'].filter(p=>providers.has(p)).map(p=>[
+    p==='gemini'?'gemini/gemini-decision-1':'openrouter/google/gemini-decision-1',
+    `Gemini Decision 1（${p==='gemini'?'Gemini':'OpenRouter'}）`]);
+}
+export function reconcileDecision(models){
+  const choices=decisionChoices(models);
+  if(!choices.length)return '';
+  if(models.decision===''||choices.some(([v])=>v===models.decision))return models.decision;
+  return (choices.find(([v])=>v.split('/')[0]===models.judge?.split('/')[0])||choices[0])[0];
+}
+export function modelLabel(model,cfg,role='actor'){if(!model)return role==='decision'?'返事の確認と同じ AI':'使わない';const choices=[...Object.values(cfg.onboarding.actor_choices).flat(),...(cfg.model_candidates?.actor||cfg.simple.actor_candidates||[])];const match=choices.find(c=>c.model===model);if(role==='actor'&&match)return match.label;const [service,...parts]=model.split('/');return `${({openrouter:'OpenRouter',openai:'OpenAI',gemini:'Gemini',anthropic:'Claude',local:'ローカル'})[service]||service} の ${parts.at(-1)}`;}
 export function requiredProviders(models,includeSTT=false){return [...new Set(Object.entries(models).filter(([r,m])=>(includeSTT||r!=='stt')&&m).map(([,m])=>m.split('/')[0]))].filter(p=>p!=='local');}
 export async function onboardingAI(parent,{partnerOnly=false,first=!partnerOnly,onWelcome,repair=false,settingsEntry=false}={}){
   let cfg=await api('/api/settings'),state=await api('/api/onboarding/state');
   const draft={method:'oauth',combination:'mixed',kind:'router',zdr:cfg.llm.zdr_only,models:{...cfg.models},simple:{...cfg.simple},keys:{},urls:{}};
-  if(settingsEntry){draft.method=cfg.llm.mode==='simple'?'oauth':'key';draft.combination=cfg.llm.mode==='simple'?'mixed':cfg.advanced_presets.find(p=>Object.entries(p.models).every(([r,m])=>cfg.models[r]===m))?.id||'custom';}
+  if(settingsEntry){draft.method=cfg.llm.mode==='simple'?'oauth':'key';draft.combination=cfg.llm.mode==='simple'?'mixed':cfg.advanced_presets.find(p=>Object.entries(p.models).every(([r,m])=>(cfg.models[r]||'')===(m||'')))?.id||'custom';}
   const initial=JSON.stringify(draft);
   const showConsent=!state.consent;
   let consent={agreed:()=>true,save:async()=>{}},consentReady=()=>{};
   let stopLogin,oauthReady=cfg.keys.openrouter==='set',downloadReady=false;
   let simple=cfg.llm.mode==='simple',downloads,flow,needsAI=repair||!cfg.ai_ready||!cfg.connection_verified;
   const preset=id=>cfg.advanced_presets.find(p=>p.id===id)?.models;
-  const choosePreset=id=>{draft.models={...(preset(id)||cfg.models)};if(id==='mixed')draft.simple={actor:draft.models.actor,judge:draft.models.judge};if(id==='gemini')draft.models.steward=draft.models.judge;};
-  const descriptions={oauth:'OpenRouter の画面で許可するだけ。キーのコピーは要りません。',key:'各社のサイトで発行したキーを貼り付けます。',mixed:'会話と判断に、それぞれ向いた AI を使います。',openai:'OpenAI のキーでまとめて使います。',gemini:'Gemini のキーでまとめて使います。',claude:'Claude とローカルの記憶検索を使います。',custom:'役割ごとに使うサービスとモデルを選びます。',router:'ひとつのキーで複数の AI を使います。',direct:'それぞれのサービスに直接つなぎます。'};
+  const choosePreset=id=>{draft.models={...(preset(id)||cfg.models)};if(id==='mixed')draft.simple={actor:draft.models.actor,judge:draft.models.judge};};
+  const descriptions={oauth:'OpenRouter の画面で許可するだけ。キーのコピーは要りません。',key:'各社のサイトで発行したキーを貼り付けます。',mixed:'会話と返事の確認に、それぞれ向いた AI を使います。',openai:'OpenAI のキーでまとめて使います。',gemini:'Gemini のキーでまとめて使います。',claude:'Claude とローカルの記憶検索を使います。',custom:'役割ごとに使うサービスとモデルを選びます。',router:'ひとつのキーで複数の AI を使います。',direct:'それぞれのサービスに直接つなぎます。'};
   function choice(body,title,options,key){choiceCards(body,title,options.map(([v,l])=>[v,l,descriptions[v]]),draft[key],v=>draft[key]=v);}
+  let decisionBox;
+  function decisionRole(body){draft.models.decision=reconcileDecision(draft.models);choiceCards(body,'場面の読み取り',[...decisionChoices(draft.models),['','返事の確認と同じ AI']],draft.models.decision,v=>draft.models.decision=v);body.append(node('p','話の重さや、どの記憶・約束が今の話に関係するかを、返事の前に素早く見分けます。'),node('p','選ぶことに特化したモデルです。返事が出るまでが約3秒短くなります。','small muted'));}
   function modelRole(body,role){
+    if(role==='decision'){decisionBox=node('div');body.append(decisionBox);decisionRole(decisionBox);return;}
     const value=draft.models[role]||'',parts=value.split('/');let provider=parts.shift()||'gemini',model=parts.join('/');
     const providers={gemini:'Gemini',openai:'OpenAI',anthropic:'Claude',openrouter:'OpenRouter',local:'ローカルモデル'};
     for(const p of Object.keys(cfg.llm.providers||{}))if(!providers[p])providers[p]=p;
@@ -33,6 +48,7 @@ export async function onboardingAI(parent,{partnerOnly=false,first=!partnerOnly,
     modelRoleFields(body,(settingsEntry&&role==='vision'?'写真の読み取り':roleNames[role])||({steward:'記憶の整理',stt:'文字起こし'})[role],providers,valueState,({provider,model})=>{
       draft.models[role]=provider==='none'?'':`${provider}/${model.trim()}`;
       if(role==='judge'&&!settingsEntry)draft.models.steward=draft.models.judge;
+      if(['actor','judge'].includes(role)&&decisionBox?.isConnected){decisionBox.replaceChildren();decisionRole(decisionBox);}
     },(p,title,options,value,change)=>choiceCards(p,title,Object.entries(options).map(([v,l])=>[v,l,`${l} のモデルを使います。`]),value,change),{onboarding:true,examples:p=>{const candidate=cfg.advanced_presets.map(x=>x.models[role]).find(m=>m?.startsWith(p+'/'));return candidate?.slice(p.length+1)||'';}});
   }
   const settingsPayload=(providers={})=>({llm:{mode:simple?'simple':'advanced',zdr_only:draft.zdr,...(Object.keys(providers).length?{providers}:{})},...(simple?{simple:draft.simple}:{models:draft.models})});
@@ -57,14 +73,15 @@ export async function onboardingAI(parent,{partnerOnly=false,first=!partnerOnly,
     },enter:({body,setReady})=>{stopLogin?.();setReady(oauthReady);let status;
       const login=action(body,'OpenRouter と連携する',async()=>{try{simple=true;choosePreset('mixed');if(!settingsEntry)await api('/api/settings',{llm:{mode:'simple'},simple:{actor:preset('mixed').actor,judge:preset('mixed').judge}},'PUT');stopLogin?.();stopLogin=await openRouterLogin(body,updated=>{cfg=updated;oauthReady=true;login.disabled=true;status.update('連携できました。');setReady(true);},()=>{status.update('ブラウザでの連携を待っています… うまくいかない時や、ブラウザの画面を閉じた時は、もう一度押せます。','waiting');},error=>status.update(error.message,'error'));}catch(error){status.update(error.message,'error');}});const connect=login.onclick;login.onclick=async()=>{await connect();login.disabled=oauthReady;};login.disabled=oauthReady;status=notice(body,oauthReady?'連携できました。':'');
     },next:async()=>{stopLogin?.();if(!simple){simple=true;choosePreset('mixed');if(!settingsEntry)await save();}return settingsEntry?'entry-summary':'zdr';}},
-    {id:'combination',render:body=>choice(body,'AI の組み合わせ',[['mixed','おすすめの組み合わせ'],['openai','OpenAI だけ'],['gemini','Gemini だけ'],['claude','Claude だけ'],['custom','全部自分で決める']],'combination'),next:()=>{simple=draft.combination==='mixed';if(draft.combination==='custom'){draft.models=Object.fromEntries(Object.entries(cfg.advanced_models).map(([r,m])=>[r,['actor','judge','embedding','research','vision'].includes(r)&&!(r==='embedding'&&m?.startsWith('local/'))?(m?m.split('/')[0]+'/':''):m]));draft.models.steward=draft.models.judge;return 'role-actor';}choosePreset(draft.combination);if(simple)return 'kind';const choices=cfg.onboarding.actor_choices[draft.combination]||[];if(choices.length)draft.models.actor=choices[0].model;return choices.length>1?'actor':draft.models.embedding.startsWith('local/')?'download':'keys';}},
+    {id:'combination',render:body=>choice(body,'AI の組み合わせ',[['mixed','おすすめの組み合わせ'],['openai','OpenAI だけ'],['gemini','Gemini だけ'],['claude','Claude だけ'],['custom','全部自分で決める']],'combination'),next:()=>{simple=draft.combination==='mixed';if(draft.combination==='custom'){draft.models=Object.fromEntries(Object.entries(cfg.advanced_models).map(([r,m])=>[r,['actor','judge','embedding','research','vision'].includes(r)&&!(r==='embedding'&&m?.startsWith('local/'))?(m?m.split('/')[0]+'/':''):m]));draft.models.steward=draft.models.judge;draft.models.decision=undefined;return 'role-actor';}choosePreset(draft.combination);if(simple)return 'kind';const choices=cfg.onboarding.actor_choices[draft.combination]||[];if(choices.length)draft.models.actor=choices[0].model;return choices.length>1?'actor':draft.models.embedding.startsWith('local/')?'download':'keys';}},
     {id:'kind',render:body=>choice(body,'使うキー',[['router','OpenRouter のキー1つ'],['direct','OpenAI と Gemini のキー2つ']],'kind'),next:()=>{simple=draft.kind==='router';choosePreset(simple?'mixed':'recommended_direct');return 'keys';}},
     {id:'actor',render:body=>{const choices=cfg.onboarding.actor_choices[draft.combination]||[];choiceCards(body,'会話のモデル',choices.map(c=>[c.model,c.label,`${c.description}\n${c.model.split('/').slice(1).join('/')}`]),draft.models.actor,v=>draft.models.actor=v);},next:()=>draft.models.embedding.startsWith('local/')?'download':'keys'},
-    ...['actor','judge','embedding','research','vision'].map((role,index,roles)=>({id:`role-${role}`,render:body=>{
+    ...['actor','judge','decision','embedding','research','vision'].map((role,index,roles)=>({id:`role-${role}`,render:body=>{
+      if(role==='decision'){decisionRole(body);return;}
       if(role!=='embedding'){modelRole(body,role);return;}
       choiceCards(body,'記憶の検索',[['service','AI のサービスを使う','使うサービスのモデルを選びます。'],['local','ローカルモデルを使う（約140MB の取得）','キーを使わず、このパソコンで検索します。']],draft.models.embedding.startsWith('local/')?'local':'service',v=>{draft.models.embedding=v==='local'?'local/ruri-v3-130m':'gemini/';void flow.start('role-embedding');});
       if(!draft.models.embedding.startsWith('local/'))modelRole(body,role);
-    },next:()=>index<roles.length-1?`role-${roles[index+1]}`:draft.models.embedding.startsWith('local/')?'download':'keys'})),
+    },next:()=>{if(role==='judge'){draft.models.decision=reconcileDecision(draft.models);return decisionChoices(draft.models).length?'role-decision':'role-embedding';}return index<roles.length-1?`role-${roles[index+1]}`:draft.models.embedding.startsWith('local/')?'download':'keys';}})),
     {id:'download',pending:true,render:()=>{},next:()=> 'keys',enter:async({go,active,body,setReady})=>{
       let initial=true;downloadReady=false;
       downloads=embeddingDownload(body,()=>draft.models.embedding,{onboarding:true,onReady:async()=>{downloadReady=true;setReady(true);if(initial&&active())await go('keys',{remember:false});}});
@@ -79,16 +96,16 @@ export async function onboardingAI(parent,{partnerOnly=false,first=!partnerOnly,
       if(Object.entries(draft.models).some(([role,m])=>!['embedding','stt'].includes(role)&&m?.startsWith('local/')))field(body,'ローカルモデルの URL',draft.urls.local||cfg.llm.providers.local?.base_url||'',v=>draft.urls.local=v);
     },next:async()=>{if(settingsEntry)return 'entry-summary';await save();return Object.values(draft.models).some(m=>m?.startsWith('openrouter/'))?'zdr':'check';}},
     {id:'zdr',render:body=>{const options=[[false,'限定しない','つながりやすさを優先して使います。'],[true,'保存しない提供元だけを使う','内容を保存しないと申告している提供元に限定します。']];if(draft.zdr)options.reverse();choiceCards(body,'会話を保存しない提供元だけを使う？',options,draft.zdr,v=>draft.zdr=v);},next:async()=>{if(settingsEntry)return 'entry-summary';await api('/api/settings',{llm:{zdr_only:draft.zdr}},'PUT');return 'check';}},
-    {id:'check',pending:true,back:'keys',next:()=> 'summary',render:body=>body.append(node('h2','接続の確認')),enter:async({active,body,setReady})=>{const waiting=node('p','選んだ AI に、会話・判断・記憶の整理・記憶の検索の4つの役で短い確認を送っています。ふつうは数秒〜30秒ほどです。','progress working');waiting.setAttribute('role','status');body.append(waiting);try{await api('/api/settings/connection',{});cfg=await api('/api/settings');if(active()){waiting.remove();notice(body,'接続の確認が完了しました。');setReady(true);}}catch(error){if(active()){waiting.remove();body.querySelector('h2').textContent='つながりませんでした';notice(body,error.message,'error');if(!settingsEntry)setupHelper(body);}}}},
+    {id:'check',pending:true,back:'keys',next:()=> 'summary',render:body=>body.append(node('h2','接続の確認')),enter:async({active,body,setReady})=>{const waiting=node('p','選んだ AI に、会話・返事の確認・記憶の整理・記憶の検索と、使う時は場面の読み取りに短い確認を送っています。ふつうは数秒〜30秒ほどです。','progress working');waiting.setAttribute('role','status');body.append(waiting);try{await api('/api/settings/connection',{});cfg=await api('/api/settings');if(active()){waiting.remove();notice(body,'接続の確認が完了しました。');setReady(true);}}catch(error){if(active()){waiting.remove();body.querySelector('h2').textContent='つながりませんでした';notice(body,error.message,'error');if(!settingsEntry)setupHelper(body);}}}},
     {id:'summary',back:()=>{needsAI=true;draft.method='key';return 'keys';},label:'次へ',render:body=>{body.append(node('h2','使うモデルの確認'));for(const [role,title]of Object.entries(roleNames))body.append(node('p',`${title}: ${modelLabel(cfg.models[role],cfg,role)}${role==='actor'?'（'+cfg.models[role].split('/').at(-1)+'）':''}`));},next:async()=>{if(repair)return 'done';await api('/api/setup/voice-step',{skipped:true});return 'partner';}},
     {...copyScreen('partner','パートナー'),next:()=> 'done'}
   ];
   if(settingsEntry){
     const summary={id:'entry-summary',pending:true,label:'つながるか確かめて保存',backAction:()=>returnToSettings('ai'),render:body=>{
       body.append(node('h2','今の AI のつなぎ方'));const list=node('div',undefined,'onboarding-summary');body.append(list);
-      const row=(title,value,id)=>summaryRow(list,title,value,()=>flow.go(id));
+      const row=(title,value,id)=>summaryRow(list,title,value,()=>{if(id==='entry-custom'){simple=false;draft.method='key';draft.combination='custom';}return flow.go(id);});
       row('設定のしかた',draft.method==='oauth'?'かんたん':'キー','method');row('AI の組み合わせ',draft.combination==='custom'?'カスタム（役ごとに指定）':({mixed:'おすすめの組み合わせ',openai:'OpenAI だけ',gemini:'Gemini だけ',claude:'Claude だけ',recommended_direct:'おすすめの組み合わせ'})[draft.combination]||draft.combination,'combination');
-      row('会話のモデル',modelLabel(draft.models.actor,cfg),'entry-actor');row('会話を保存しない提供元',draft.zdr?'保存しない提供元だけ':'限定しない','zdr');
+      row('会話のモデル',modelLabel(draft.models.actor,cfg),'entry-actor');row('場面の読み取り',modelLabel(draft.models.decision,cfg,'decision'),'entry-custom');row('会話を保存しない提供元',draft.zdr?'保存しない提供元だけ':'限定しない','zdr');
       if(draft.method==='key')row('使うサービスのキー',requiredProviders(draft.models,settingsEntry).map(p=>`${({openrouter:'OpenRouter',openai:'OpenAI',gemini:'Gemini',anthropic:'Claude'})[p]||p}: ${draft.keys[p]||cfg.keys[p]==='set'?'設定済み':'未設定'}`).join(' / '),'keys');
       else summaryRow(list,'OpenRouter',oauthReady?'つながっています':'未設定',()=>{oauthReady=false;return flow.go('oauth');},'つなぎ直す');
     },enter:({body,setReady})=>{body.nextElementSibling.querySelector('button').textContent='設定に戻る';setReady(JSON.stringify(draft)!==initial);},next:async()=>{
@@ -97,7 +114,7 @@ export async function onboardingAI(parent,{partnerOnly=false,first=!partnerOnly,
     }};
     screens.unshift(summary);
     screens.push({id:'entry-actor',back:'entry-summary',render:body=>{if(simple){field(body,'会話のモデル',draft.simple.actor,v=>{draft.simple.actor=v;draft.models.actor=v;});}else modelRole(body,'actor');},next:()=>requiredProviders(draft.models,settingsEntry).some(p=>cfg.keys[p]!=='set'&&!draft.keys[p])?'keys':'entry-summary'});
-    screens.push({id:'entry-custom',back:'entry-summary',render:body=>{for(const role of ['actor','judge','steward','embedding','vision','stt','research'])modelRole(body,role);downloads=embeddingDownload(body,()=>draft.models.embedding);void downloads.refresh();const sttDownload=embeddingDownload(body,()=>draft.models.stt||'',{endpoint:'/api/stt',title:'文字起こしのモデル',label:'文字起こしのモデル'});void sttDownload.refresh();},next:()=> 'keys'});
+    screens.push({id:'entry-custom',back:'entry-summary',render:body=>{for(const role of ['actor','judge','decision','steward','embedding','vision','stt','research'])modelRole(body,role);downloads=embeddingDownload(body,()=>draft.models.embedding);void downloads.refresh();const sttDownload=embeddingDownload(body,()=>draft.models.stt||'',{endpoint:'/api/stt',title:'文字起こしのモデル',label:'文字起こしのモデル'});void sttDownload.refresh();},next:()=> 'keys'});
     for(const screen of screens){if(['welcome','ai','partner','summary','check','entry-summary'].includes(screen.id))continue;screen.back='entry-summary';if(screen.id==='combination'){const next=screen.next;screen.next=()=>draft.combination==='custom'?(simple=false,'entry-custom'):next();}}
   }
   function progressFor(screen){
@@ -111,7 +128,7 @@ export async function onboardingAI(parent,{partnerOnly=false,first=!partnerOnly,
       else {
         route.push('combination');
         if(draft.combination==='mixed')route.push('kind');
-        else if(draft.combination==='custom')route.push(...['actor','judge','embedding','research','vision'].map(r=>`role-${r}`));
+        else if(draft.combination==='custom')route.push(...['actor','judge',...(decisionChoices(draft.models).length?['decision']:[]),'embedding','research','vision'].map(r=>`role-${r}`));
         else if((cfg.onboarding.actor_choices[draft.combination]||[]).length>1)route.push('actor');
         if(draft.models.embedding?.startsWith('local/'))route.push('download');
         route.push('keys');if(requiredProviders(draft.models,settingsEntry).includes('openrouter'))route.push('zdr');

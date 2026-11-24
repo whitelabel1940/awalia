@@ -134,6 +134,7 @@ export function accordion(parent,items,{activeIndex,onActive=()=>{}}={}){
   paint();return {refresh:paint};
 }
 
+// Same list and order as cbs/telemetry.py ONBOARDING_ORDER; reports number the steps by this order.
 export const ONBOARDING_STEPS = `welcome ai method oauth combination kind actor role-actor role-judge role-embedding role-research role-vision download keys zdr check summary partner
 bringing profile import world partner-fields user-fields now likes now-question scenes scenes-question
 open-style depth depth-question life life-question more more-question checks review confirmation review-wait

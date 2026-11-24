@@ -85,8 +85,8 @@ def test_calendar_existing_day_count_hundred_years_nearby_and_leap(pipeline):
         nearby = public_note(p)['nearby_days']
         assert len(nearby)==2 and all(d['in_days']==0 for d in nearby)
         assert next(d for d in days_context(p.store,'fixture',p.config.days,user_reply=True)['today'] if d['kind']=='user_birthday')['may_mention']
-        # Imported UTC timestamps still count on their local calendar day.
-        p.store.add_turn(sid,'取り込みの会話','返答',{},created_at='2026-10-20T15:05:00+00:00')
+        # Imported UTC timestamps still count on their local day (04:05 JST, after the 4am start).
+        p.store.add_turn(sid,'取り込みの会話','返答',{},created_at='2026-10-20T19:05:00+00:00')
         assert not next(d for d in days_context(p.store,'fixture',p.config.days,user_reply=True)['today'] if d['kind']=='user_birthday')['first_user_reply']
     with clock.at('2027-07-13 12:00'):
         assert next(d for d in calendar_days(p.store,'fixture',p.config.days) if d['id']=='auto:year:1')['in_days']==0

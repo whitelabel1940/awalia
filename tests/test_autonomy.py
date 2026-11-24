@@ -126,6 +126,33 @@ def test_extract_dated_event_and_thread_use(pipeline):
         assert pipeline.store.list_threads('fixture')[0]['status'] == 'used'
 
 
+def test_told_thread_stays_a_candidate_for_the_rest_of_the_conversation(pipeline):
+    # "Why that?" right after a share must still see where the topic came from.
+    store = pipeline.store
+    extract = lambda used: {'ledger_updates': [], 'new_canon': [], 'disclosures': [], 'used_memories': [], 'used_threads': used}
+    def refs(response):
+        return {m['ref']: m for m in store.get_trace(response['turn_id'])['Load']['output']['candidate_memories']}
+    with clock.at('2026-10-03 12:00'):
+        sid = store.create_session('fixture')['id']
+        store.add_thread('fixture', 'share', '祭り', '地域のイベント記事で知った', 'activity:1')
+        pipeline.client = FakeLLMClient(json_responses=[{'memory_use': [use('thread:1')]}, {'problems': []}],
+                                        extract_responses=[extract(['thread:1'])])
+        pipeline.run(sid, '何か調べてたの？')
+        pipeline.wait_for_steward()
+        assert store.list_threads('fixture')[0]['status'] == 'used'
+    with clock.at('2026-10-03 12:01'):
+        pipeline.client = FakeLLMClient(extract_responses=[extract(['thread:1'])])
+        told = refs(pipeline.run(sid, 'なんでまた急に？'))['thread:1']
+        pipeline.wait_for_steward()
+        assert told['status'] == 'used' and told['told_at']['iso'].startswith('2026-10-03T12:00')
+        assert store.list_threads('fixture')[0]['status'] == 'used'
+    with clock.at('2026-10-04 12:00'):
+        # A later conversation no longer carries it; it was told already.
+        pipeline.client = FakeLLMClient()
+        assert 'thread:1' not in refs(pipeline.run(sid, 'おはよう'))
+        pipeline.wait_for_steward()
+
+
 def test_plan_followup_cancellation_and_reschedule(pipeline):
     sid = pipeline.store.create_session('fixture')['id']
     plan = pipeline.store.create_plan(sid, 'カフェ', scheduled_date='2026-10-17')
@@ -209,6 +236,33 @@ def test_episodizer_dated_threads_and_explicit_matching(pipeline):
         assert len(threads) == 2
         assert all(t['source_ref'].startswith('fact:') for t in threads)
         assert {t['topic'] for t in threads} == {'健康診断', '面接'}
+
+
+def test_reported_outcome_closes_the_follow_up_before_it_is_due(pipeline):
+    # The meeting result came on the same day; nobody should ask about it two days later.
+    store = pipeline.store
+    with clock.at('2026-11-09 00:24'):
+        sid = store.create_session('fixture')['id']
+        planned = pipeline.run(sid, '明日は朝から会議')
+        pipeline.wait_for_steward()
+        fact = {'operation': 'new', 'content': '社長との会議', 'importance': .5, 'pinned': False,
+                'event_date': '2026-11-09', 'learned_turn': planned['turn_id'], 'follow_up': True, 'follow_up_thread': None}
+        pipeline.client.episodizer_responses = [{'episodes': [{'summary': '予定', 'details': '会議の予定', 'importance': .5, 'pinned': False}], 'user_facts': [fact]}]
+        pipeline.close_conversation(sid)
+        pipeline.wait_for_steward()
+        [thread] = store.list_threads('fixture')
+        assert thread['status'] == 'open' and thread['due_at'].startswith('2026-11-10')
+    with clock.at('2026-11-09 19:06'):
+        pipeline.client = FakeLLMClient()
+        reported = pipeline.run(sid, '会議は無事乗り切ったよ')
+        pipeline.wait_for_steward()
+        outcome = {**fact, 'content': '会議を乗り切った', 'learned_turn': reported['turn_id'], 'follow_up': False, 'follow_up_thread': thread['id']}
+        pipeline.client.episodizer_responses = [{'episodes': [{'summary': '結果', 'details': '会議の結果', 'importance': .5, 'pinned': False}], 'user_facts': [outcome]}]
+        pipeline.close_conversation(sid)
+        pipeline.wait_for_steward()
+    with clock.at('2026-11-12 00:02'):
+        assert store.list_threads('fixture')[0]['status'] == 'used'
+        assert store.list_threads('fixture', eligible_only=True) == []
 
 
 def test_idle_default_off_quiet_hours_once_and_daily_limit(pipeline):

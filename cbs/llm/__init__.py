@@ -58,6 +58,7 @@ def image_messages(text, images):
 
 
 class LLMClient(Protocol):
+    def decide(self, model: str, input_text: str, questions: dict): ...
     def transcribe_audio(self, model: str, system: str, audio: bytes) -> str: ...
     def generate_images_json(self, model: str, system: str, text: str, images: list[bytes], schema: type[BaseModel]) -> LLMResult: ...
     def generate_video_json(self, model: str, system: str, url: str, schema: type[BaseModel]) -> LLMResult: ...
@@ -107,6 +108,30 @@ class FakeLLMClient:
     usage_responses: list[dict] = field(default_factory=list)
 
     error_responses: list[LLMError | None] = field(default_factory=list)
+    decision_responses: list[dict | Exception] = field(default_factory=list)
+    past_reference_responses: list[dict | str] = field(default_factory=list)
+
+    @metered
+    def decide(self, model, input_text, questions):
+        from cbs.llm.decision import run_decision, DecisionError
+        # Assign scripts before parallel dispatch so thread scheduling cannot
+        # swap responses between batches in offline tests.
+        names = list(questions)
+        size = 1000 if model.startswith('gemini/') else 32
+        scripts = {names[i]: self.decision_responses.pop(0) if self.decision_responses else None
+                   for i in range(0, len(names), size)}
+        def send(batch):
+            response = scripts[next(iter(batch))]
+            if response is None:
+                if list(batch) == ['connection']:
+                    self.calls.append({'model': model, 'role': 'decision', 'questions': list(batch)})
+                    return {'answers': {'connection': {'type': 'noul', 'noul': 0}}}
+                raise DecisionError('unscripted')
+            self.calls.append({'model': model, 'role': 'decision', 'questions': list(batch)})
+            if isinstance(response, Exception):
+                raise response
+            return response
+        return run_decision(model, questions, send)
 
     def _usage(self):
         if self.error_responses:
@@ -183,7 +208,9 @@ class FakeLLMClient:
     def generate_json(self, model, system, messages, schema):
         request = {"model": model, "system": system, "messages": messages, "schema": schema.model_json_schema()}
         self.calls.append(request)
-        if schema.__name__ == 'PhotoDescriptions':
+        if schema.__name__ == 'PastReference':
+            response = self.past_reference_responses.pop(0) if self.past_reference_responses else {'asks_about_past': True, 'targets': []}
+        elif schema.__name__ == 'PhotoDescriptions':
             response = self.vision_responses.pop(0) if self.vision_responses else {'descriptions': ['見えたこと: 白い皿にごはん。推測: 昼食かもしれない。'] * (len(messages[0]['content']) - 1)}
         elif schema.__name__ == 'BirthdayInitial':
             response = self.birthday_initial_responses.pop(0) if getattr(self, 'birthday_initial_responses', []) else {'birthday': None}
@@ -309,6 +336,20 @@ class RoutingLLMClient:
         for client in self._clients.values():
             text = client.sanitize_text(text)
         return text
+
+    @metered
+    def decide(self, model, input_text, questions):
+        from cbs.llm.decision import DecisionHTTPClient, DecisionError
+        name, _ = self._split(model)
+        if model not in ('openrouter/google/gemini-decision-1', 'gemini/gemini-decision-1'):
+            raise DecisionError('model')
+        if name == 'openrouter' and self._config.llm.zdr_only:
+            raise DecisionError('zdr_only')
+        key = (name, 'decision')
+        if key not in self._clients:
+            self._clients[key] = DecisionHTTPClient(self._config, name,
+                **({'api_key': self._credentials[name]} if name in self._credentials else {}))
+        return self._clients[key].decide(model, self.sanitize_text(input_text), questions)
 
     @observed
     @metered

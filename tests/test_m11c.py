@@ -15,16 +15,16 @@ from cbs.web import create_app
 def fact(store, category='temporary_health', override=None, cid='fixture', follow=True):
     with store.connect() as db:
         fid = db.execute('INSERT INTO user_facts (character_id,content,learned_at,last_confirmed_at,importance,pinned,private,private_category,mention_override,event_date,follow_up) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-            (cid,'本人が話した体調の出来事',clock.iso(),clock.iso(),.7,0,1,category,override,clock.now().date().isoformat(),follow)).lastrowid
+            (cid,'本人が話した体調の出来事',clock.iso(),clock.iso(),.7,0,1,category,override,clock.today().isoformat(),follow)).lastrowid
         store._fact_thread(db,cid,fid,UserFact(operation='new',content='本人が話した体調の出来事',private=True,private_category=category,
-            importance=.7,pinned=False,event_date=clock.now().date(),follow_up=follow),None)
+            importance=.7,pinned=False,event_date=clock.today(),follow_up=follow),None)
     return fid
 
 
 def test_defaults_legacy_unknown_and_override_resolution(pipeline):
     p=pipeline
     settings=p.store.private_settings('fixture')
-    assert {k for k,v in settings.items() if v['allow_mention']} == {'temporary_health'}
+    assert not any(v['allow_mention'] for v in settings.values())
     ids=[fact(p.store,c) for c in settings]
     for category in [None,'not-in-config']:
         fid=fact(p.store,category)
@@ -33,7 +33,7 @@ def test_defaults_legacy_unknown_and_override_resolution(pipeline):
     p.store.set_private_settings('fixture',{'temporary_health':False,'ongoing_health':True})
     rows={f['id']:f for f in p.store.list_user_facts('fixture')}
     assert not rows[ids[0]]['allow_mention'] and rows[ids[1]]['allow_mention']
-    assert p.store.private_settings('other')['temporary_health']['allow_mention']
+    assert not p.store.private_settings('other')['temporary_health']['allow_mention']
     fid=fact(p.store,'ongoing_health',False)
     assert not next(f for f in p.store.list_user_facts('fixture') if f['id']==fid)['allow_mention']
     fid=fact(p.store,'other',True)
@@ -57,7 +57,7 @@ def test_same_day_and_future_due_one_shot_and_fact_selection(pipeline):
         assert not p.store.list_user_facts('fixture')[0]['may_initiate']
         # Reconfirmation of the same event cannot reopen a used follow-up.
         with p.store.connect() as db:
-            p.store._fact_thread(db,'fixture',fid,UserFact(operation='confirm',content='同じ出来事',private=True,private_category='temporary_health',importance=.7,pinned=False,event_date=clock.now().date()),tid)
+            p.store._fact_thread(db,'fixture',fid,UserFact(operation='confirm',content='同じ出来事',private=True,private_category='temporary_health',importance=.7,pinned=False,event_date=clock.today()),tid)
         assert len(p.store.list_threads('fixture'))==1 and p.store.list_threads('fixture')[0]['status']=='used'
         p.store.set_private_settings('fixture',{'temporary_health':False})
         p.store.set_private_settings('fixture',{'temporary_health':True})
@@ -103,7 +103,7 @@ def test_ongoing_permission_enable_and_explicit_current_topic_gate(pipeline):
     p.store.set_private_settings('fixture',{'ongoing_health':True})
     assert p.store.list_user_facts('fixture')[0]['allow_mention']
     assert p.store.list_threads('fixture')[0]['status']=='open'
-    with clock.at((clock.now()+timedelta(days=1)).date().isoformat()+' 12:00'):
+    with clock.at((clock.today()+timedelta(days=1)).isoformat()+' 12:00'):
         assert p.store.list_user_facts('fixture')[0]['may_initiate']
 
 
@@ -115,7 +115,8 @@ def test_inner_updates_allowed_thread_without_creating_private_want(pipeline):
     assert len(p.store.list_threads('fixture'))==1
     assert p.store.list_threads('fixture')[0]['status']=='open'
     call=next(c for c in p.client.calls if c.get('schema',{}).get('title')=='InnerUpdate')
-    assert json.loads(call['messages'][0]['content'])['private_facts_policy'][0]['allow_mention']
+    policy=json.loads(call['messages'][0]['content'])['private_facts_policy'][0]
+    assert not policy['allow_mention'] and policy['may_initiate']
 
 
 def test_allowed_private_proactive_reaches_actor_and_consumes_once(pipeline):
@@ -140,7 +141,7 @@ def test_episodizer_classification_and_revision_preserve_override(pipeline):
     def save(operation, category, fid=None, thread=None):
         sid=p.store.create_session('fixture')['id'];p.store.add_turn(sid,'本人の発言','返答',{})
         p.client.episodizer_responses=[{'episodes':[dict(summary='体調の話',details='本人が話した',importance=.5,pinned=False)],
-            'user_facts':[dict(operation=operation,fact_id=fid,private=True,private_category=category,content='体調の出来事',importance=.7,pinned=False,event_date=clock.now().date().isoformat(),follow_up=True,follow_up_thread=thread)]}]
+            'user_facts':[dict(operation=operation,fact_id=fid,private=True,private_category=category,content='体調の出来事',importance=.7,pinned=False,event_date=clock.today().isoformat(),follow_up=True,follow_up_thread=thread)]}]
         p.close_conversation(sid);p.wait_for_steward()
     save('new','temporary_health');f=p.store.list_user_facts('fixture', current_only=True)[0];t=p.store.list_threads('fixture')[0]
     with p.store.connect() as db:db.execute('UPDATE user_facts SET mention_override=0 WHERE id=?',(f['id'],))

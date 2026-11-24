@@ -188,6 +188,27 @@ ul.list li{padding-left:12px;border-left:2px solid var(--line);font-size:var(--t
 .voice-references li {display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;}
 .voice-references li span {overflow-wrap:anywhere;flex:1 1 12rem;}
 .voice-references audio {max-width:100%;height:2.5rem;}
+.voice-tips{margin-top:1rem;border:1px solid var(--line,#ddd);border-radius:.5rem;padding:.6rem .9rem}
+.voice-tips summary{cursor:pointer;font-weight:500}
+.voice-tips h5{margin:.9rem 0 .2rem}
+.voice-examples-box{margin:.4rem 0 .2rem}
+.voice-examples-box summary{cursor:pointer}
+.voice-examples{width:100%;border-collapse:collapse;margin:.6rem 0;font-size:var(--type-ui)}
+.voice-examples th,.voice-examples td{border-bottom:1px solid var(--line,#ddd);padding:.45rem .5rem;text-align:left;vertical-align:top}
+.voice-examples thead th{font-size:var(--type-meta);font-weight:500;color:var(--muted,#666);white-space:nowrap}
+.voice-examples .voice-category{font-size:var(--type-note);font-weight:500;width:9rem}
+.voice-examples .voice-category-note{display:block;margin-top:.2rem;font-size:var(--type-meta);font-weight:400;color:var(--muted,#666);line-height:1.5}
+.voice-examples .voice-number{width:2rem;text-align:right;color:var(--muted,#666)}
+.voice-examples td:last-child{overflow-wrap:anywhere}
+.voice-copy{border:1px solid var(--line,#bbb);border-radius:.4rem;background:transparent;padding:.15rem .6rem;font-size:var(--type-meta);white-space:nowrap;cursor:pointer}
+.voice-copy:hover{border-color:currentColor}
+@media (max-width:640px){
+.voice-examples thead{display:none}
+.voice-examples,.voice-examples tbody{display:block}
+.voice-examples tr{display:grid;grid-template-columns:auto 1.6rem 1fr;align-items:start;border-bottom:1px solid var(--line,#ddd)}
+.voice-examples th,.voice-examples td{border:0}
+.voice-examples .voice-category{grid-column:1/-1;width:auto;padding-top:.8rem}
+}
 .voice-editor,.voice-design,.voice-clone,.voice-external {display:grid;gap:.7rem;}
 .voice-editor[hidden],.voice-design[hidden],.voice-clone[hidden],.voice-external[hidden] {display:none;}
 .f input[type="range"] {width:100%;padding:0;accent-color:var(--accent);}

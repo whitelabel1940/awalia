@@ -64,19 +64,20 @@ def test_single_conversation_crossing_midnight_not_established(pipeline):
     assert next(i for i in pipeline.store.list_interests('fixture') if i['origin'] == 'conversation')['status'] == 'tentative'
 
 
-def test_days_follow_partner_reply_not_user_input_at_midnight(pipeline):
-    with clock.at('2026-09-01 23:59'):
+def test_days_follow_partner_reply_not_user_input_at_day_start(pipeline):
+    # The day starts at 4am: a 3:59 message answered at 4:01 counts on the new day.
+    with clock.at('2026-09-02 03:59'):
         sid = pipeline.store.create_session('fixture')['id']
         tid = pipeline.store.add_turn(sid, '好き？', 'お香が気になる', {},
-                                     assistant_at=clock.parse('2026-09-02 00:01').isoformat())
-    with clock.at('2026-09-02 00:02'):
+                                     assistant_at=clock.parse('2026-09-02 04:01').isoformat())
+    with clock.at('2026-09-02 04:02'):
         pipeline.client.episodizer_responses = [{
             'episodes': [{'summary': 'お香', 'details': '関心', 'importance': .5, 'pinned': False}],
             'user_facts': [], 'haru_expressed': [proposal(turns=[tid])]}]
         pipeline.close_conversation(sid)
         pipeline.wait_for_steward()
         item = next(i for i in pipeline.store.list_interests('fixture') if i['origin'] == 'conversation')
-        assert item['first_seen'].startswith('2026-09-02T00:01')
+        assert item['first_seen'].startswith('2026-09-02T04:01')
         assert item['evidence'][0]['local_day'] == '2026-09-02'
     same_day = express(pipeline, '2026-09-02 20:00', 'reinforce', item['id'])
     assert same_day['status'] == 'tentative'

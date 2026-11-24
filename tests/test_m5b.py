@@ -132,7 +132,7 @@ def test_daily_digest_once_local_day_merge_month_and_failure(pipeline):
         pipeline.maintenance()
         pipeline.wait_for_steward()
         assert len([c for c in pipeline.client.calls if c.get("schema", {}).get("title") == "MonthlyDigest"]) == calls
-    with clock.at("2026-09-16 00:01"):
+    with clock.at("2026-09-16 04:01"):
         pipeline.maintenance()
         pipeline.wait_for_steward()
         merged = pipeline.store.list_monthly_digests('fixture')

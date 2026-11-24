@@ -122,6 +122,21 @@ def test_relative_labels(then, expected):
         assert clock.calendar(clock.iso())["来週月曜"] == "2026-10-19"
 
 
+def test_late_night_is_still_the_day_before():
+    # 0:24 on 11/9: 「明日は朝から会議」 means the morning after sleeping, 11/9.
+    with clock.at("2026-11-09 00:24"):
+        lookup = clock.calendar(clock.iso())
+        assert (lookup["今日"], lookup["明日"], lookup["昨日"]) == ("2026-11-08", "2026-11-09", "2026-11-07")
+        assert lookup["今週日曜"] == "2026-11-08"
+        assert clock.today().isoformat() == "2026-11-08"
+        assert clock.relative("2026-11-08 21:00") == "今日"
+        assert clock.relative("2026-11-09") == "明日"          # a plain date is that day, not shifted
+    with clock.at("2026-11-09 04:00"):
+        assert clock.calendar(clock.iso())["明日"] == "2026-11-10"
+        assert clock.relative("2026-11-09 01:00") == "昨日"
+        assert clock.day_start("2026-11-09").isoformat().startswith("2026-11-09T04:00")
+
+
 def test_clock_gap_and_reset():
     before = clock.now()
     with clock.at("2026-10-01 20:00"):

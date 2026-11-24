@@ -71,11 +71,33 @@ def test_midnight_has_only_actual_speech_dates_and_grounding(pipeline):
                 ('fixture',conv,'2026-10-17T23:50:00+09:00',clock.iso(),'本と雨','二つの話題',clock.iso()))
     with clock.at('2026-10-20T12:00:00+09:00'):
         assert len(fill_diaries(pipeline))==2
-    assert [d['day'] for d in diaries(s,'fixture')]==['2026-10-19','2026-10-17']
+    # 0:10 on 10/19 is still the night of 10/18; the day starts at 4am.
+    assert [d['day'] for d in diaries(s,'fixture')]==['2026-10-18','2026-10-17']
     for call in pipeline.client.calls:
         if call.get('schema',{}).get('title')=='DiaryEntry':
             context=json.loads(call['messages'][0]['content'])
-            assert all(clock.parse(u['at']).date().isoformat()==context['day'] for m in context['memories'] for u in m['day_utterances'])
+            assert all(clock.local_date(u['at']).isoformat()==context['day'] for m in context['memories'] for u in m['day_utterances'])
+
+
+def test_late_night_talk_belongs_to_the_day_before(pipeline):
+    s=pipeline.store
+    with clock.at('2026-10-17T21:00:00+09:00'):
+        sid=s.create_session('fixture')['id'];conv=s.prepare_conversation(sid,clock.iso())
+        s.add_turn(sid,'夜の話','夜の返事',{},conversation_id=conv)
+    with clock.at('2026-10-18T01:30:00+09:00'):
+        s.add_turn(sid,'まだ起きてる','そろそろ寝よう',{},conversation_id=conv)
+        with s.connect() as db:
+            db.execute("UPDATE conversations SET status='episodized' WHERE id=?",(conv,))
+            db.execute('INSERT INTO memory_episodes(character_id,conversation_id,started_at,ended_at,summary,details,importance,pinned,created_at) VALUES (?,?,?,?,?,?,0.5,0,?)',
+                ('fixture',conv,'2026-10-17T21:00:00+09:00',clock.iso(),'夜更かし','夜の話',clock.iso()))
+    with clock.at('2026-10-18T03:59:00+09:00'):
+        assert fill_diaries(pipeline)==[]          # 10/17 is not over yet
+    with clock.at('2026-10-18T04:01:00+09:00'):
+        assert [r['status'] for r in fill_diaries(pipeline)]==['completed']
+    assert [d['day'] for d in diaries(s,'fixture')]==['2026-10-17']
+    # The writer is told the day is over: written next morning, and the day reads as 「昨日」.
+    context=json.loads(next(c for c in pipeline.client.calls if c.get('schema',{}).get('title')=='DiaryEntry')['messages'][0]['content'])
+    assert context['written_at']['iso'].startswith('2026-10-18T04:01') and context['day_time']['relative']=='昨日'
 
 
 def test_recent_comment_on_older_page_reaches_next_generation(pipeline):
@@ -144,7 +166,7 @@ def test_day_held_by_an_open_conversation_is_written_once_it_is_saved(pipeline):
     with s.connect() as db:
         db.execute("DELETE FROM memory_maintenance WHERE local_day='2026-10-26'")  # setup may record a pass for the real date
     pipeline.client.diary_responses = [dict(summary='夜の話。', partner_comment='遅くまでありがとう。')]
-    with clock.at('2026-10-26T00:05:00+09:00'):
+    with clock.at('2026-10-26T04:05:00+09:00'):
         fill_diaries(pipeline)                       # today's pass: the open conversation holds 10/25
         assert not diaries(s, 'fixture')
         assert catch_up_diaries(pipeline, {'conversation_id': conv}) is None   # pass not recorded yet: leave it to the pass

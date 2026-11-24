@@ -6,8 +6,9 @@ const dom=new JSDOM(readFileSync(new URL('../cbs/web/static/index.html',import.m
 for(const key of ['window','document','location','localStorage','history'])globalThis[key]=dom.window[key];
 window.scrollTo=()=>{};dom.window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;};
 const calls=[];
-const privateFact={id:3,content:'私的な事実',private:true,private_category:'temporary_health',category_label:'一時的な体調の出来事',mention_override:null,allow_mention:true};
-const categories={temporary_health:{label:'一時的な体調の出来事',allow_mention:true},ongoing_health:{label:'続いている健康の事情',allow_mention:false},other:{label:'その他',allow_mention:false}};
+const privateFact={id:3,content:'私的な事実',private:true,private_category:'temporary_health',category_label:'一時的な体調の出来事',mention_override:null,allow_mention:false};
+const categories={temporary_health:{label:'一時的な体調の出来事',allow_mention:false},ongoing_health:{label:'続いている健康の事情',allow_mention:false},other:{label:'その他',allow_mention:false}};
+let mentionNotice=true;
 let data={stopped:false,understandings:[{id:1,kind:'interaction',text:'短い返事が好みらしい',condition:'雑談の時',stage_label:'〜みたい',status:'active',expires_at:null,evidence:[{observed_at:'2026-10-01',summary:'二、三文が好きと言った'}],counterevidence:[]}],facts:[{id:2,content:'明言したこと',private:false}]};
 const result=x=>new Response(JSON.stringify(x),{headers:{'Content-Type':'application/json'}});
 globalThis.fetch=async(path,options={})=>{
@@ -19,8 +20,8 @@ globalThis.fetch=async(path,options={})=>{
   if(route==='/api/proactive/opening')return result({speak:false});
   if(route==='/api/note')return result({name:'テスト係',knowing:data,interests:[],activities:[],past:[],books:[]});
   if(route==='/api/note/private')return result({facts:[privateFact]});
-  if(route==='/api/note/private-settings'){if(body)for(const [k,v]of Object.entries(body.categories))categories[k].allow_mention=v;return result({categories});}
-  if(route==='/api/note/facts/3/mention'){privateFact.mention_override=body.mention_override;return result({ok:true});}
+  if(route==='/api/note/private-settings'){if(body){for(const [k,v]of Object.entries(body.categories))categories[k].allow_mention=v;mentionNotice=false;}return result({categories,mention_notice:mentionNotice});}
+  if(route==='/api/note/facts/3/mention'){privateFact.mention_override=body.mention_override;mentionNotice=false;return result({ok:true});}
   if(route==='/api/note/inference'){data.stopped=body.stopped;return result({stopped:body.stopped});}
   if(route.startsWith('/api/note/understandings/')){if(body.action==='agree')data.understandings[0].stage_label='知っている';if(body.action==='forget')data.understandings=[];return result({ok:true});}
   if(route.startsWith('/api/note/facts/')){if(options.method==='DELETE')data.facts=[];else data.facts[0].content=body.content;return result({ok:true});}
@@ -35,7 +36,12 @@ assert(document.body.textContent.includes('なぜそう思った？'));assert(do
 const inferenceCard=[...document.querySelectorAll('section')].find(s=>s.querySelector('h3')?.textContent==='あなたについての理解');
 assert(inferenceCard?.querySelector('input[type=checkbox]'));
 assert.equal(inferenceCard.previousElementSibling.querySelector('h3').textContent,'プライベートなことの気にかけ方');
-assert(document.body.textContent.includes('プライベートなことの気にかけ方'));const categoryCard=[...document.querySelectorAll('section')].find(s=>s.querySelector('h3')?.textContent==='プライベートなことの気にかけ方');assert.equal(categoryCard.previousElementSibling.querySelector('summary').textContent,'もっとプライベートなこと');assert.deepEqual([...categoryCard.querySelectorAll('input')].map(i=>i.checked),[true,false,false]);assert(!calls.some(c=>c.route==='/api/note/private'));assert(!document.body.textContent.includes('私的な事実'));
+assert(document.body.textContent.includes('プライベートなことの気にかけ方'));const categoryCard=[...document.querySelectorAll('section')].find(s=>s.querySelector('h3')?.textContent==='プライベートなことの気にかけ方');assert.equal(categoryCard.previousElementSibling.querySelector('summary').textContent,'もっとプライベートなこと');assert.deepEqual([...categoryCard.querySelectorAll('input')].map(i=>i.checked),[false,false,false]);assert(!calls.some(c=>c.route==='/api/note/private'));assert(!document.body.textContent.includes('私的な事実'));
+assert(categoryCard.textContent.includes('日常の話題にしてよい'));assert(categoryCard.textContent.includes('一時的な体調の出来事だけは、チェックなしでも一度だけ'));
+assert.equal(categoryCard.querySelector('[data-private-mention-notice]').hidden,false);
+await click('この設定で保存する',categoryCard);assert.equal(mentionNotice,false);
+assert.equal(document.querySelector('[data-private-mention-notice]').hidden,true);
+assert.deepEqual(calls.filter(c=>c.route==='/api/note/private-settings'&&c.method==='PUT').at(-1).body,{categories:{temporary_health:false,ongoing_health:false,other:false}});
 await click('合ってる');assert(document.body.textContent.includes('知っている'));
 await click('違う');const correction=[...document.querySelectorAll('input')].find(e=>e.parentElement.textContent.includes('どこが違う'));correction.value='仕事の話は詳しく';correction.dispatchEvent(new window.Event('input'));await click('伝える');assert(calls.some(c=>c.body?.action==='disagree'&&c.body.detail==='仕事の話は詳しく'));
 await click('直す');let edit=document.querySelector('textarea');edit.value='直した事実';edit.dispatchEvent(new window.Event('input'));await click('保存する');assert.equal(data.facts[0].content,'直した事実');
@@ -56,6 +62,7 @@ await click('今の理解を残す',parent);assert(data.stopped);assert(calls.at
 stopped.checked=false;await stopped.onchange();assert(!data.stopped);stopped.checked=true;await stopped.onchange();await click('今の理解を消す',parent);assert(calls.at(-1).body.clear===true);
 assert(calls.filter(c=>c.route.startsWith('/api/note')).every(c=>c.path.includes('character_id=fixture')));
 const {privateSettings}=await import('../cbs/web/static/knowing.js');const settings=document.createElement('section');document.body.append(settings);await privateSettings(settings);
-assert(settings.textContent.includes('プライベートなことの気にかけ方'));const switches=settings.querySelectorAll('input');assert.deepEqual([...switches].map(i=>i.checked),[true,false,false]);
-switches[0].checked=false;await switches[0].onchange();assert.equal(categories.temporary_health.allow_mention,false);assert.deepEqual(calls.at(-1).body,{categories:{temporary_health:false}});
+assert(settings.textContent.includes('プライベートなことの気にかけ方'));const switches=settings.querySelectorAll('input');assert.deepEqual([...switches].map(i=>i.checked),[false,false,false]);
+assert.equal(settings.querySelector('[data-private-mention-notice]').hidden,true);
+switches[0].checked=true;await switches[0].onchange();assert.equal(categories.temporary_health.allow_mention,true);assert.deepEqual(calls.at(-1).body,{categories:{temporary_health:true}});
 console.log('PASS M11/M11c offline DOM: tabs, evidence, controls, lazy private, fact tri-state mention override, inference, category settings');

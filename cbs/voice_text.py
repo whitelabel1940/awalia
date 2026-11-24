@@ -14,6 +14,7 @@ from cbs.pipeline import Check
 
 class VoiceCheck(Check):
     llm_role: ClassVar[str] = 'judge'
+    used_private_followups: list[str] = Field(default_factory=list, max_length=12)
 
 
 class Monologue(BaseModel):
@@ -38,6 +39,7 @@ def voice_call(pipeline, prompt, schema, context, texts, *, purpose, trace):
 
     store, character = pipeline.store, pipeline.character
     cid = pipeline.config.character.id
+    context = {**context, 'private_facts_policy': store.private_context(cid)}
     persona = effective_persona(character, pipeline.config).ai_question
     requests = store.current_requests(character)
     packet = {'world': character.world, 'expression': store.current_character(character).expression.model_dump(mode='json', by_alias=True),
@@ -84,7 +86,8 @@ def voice_call(pipeline, prompt, schema, context, texts, *, purpose, trace):
         if INTERNAL_MARKERS.search(candidate):
             attempts[-1]['rejected'] = 'internal marker'
             return False
-        messages = [{'role': 'user', 'content': json.dumps({**check_context, 'assistant_text': candidate}, ensure_ascii=False)}]
+        messages = [{'role': 'user', 'content': json.dumps({**check_context, 'assistant_text': candidate,
+                     'voice_output': result.parsed.model_dump(mode='json')}, ensure_ascii=False)}]
         attempts[-1]['check'] = {'request': {'model': pipeline.config.models.judge, 'system': check_system,
                                            'messages': messages, 'schema': VoiceCheck.model_json_schema()}}
         try:
@@ -95,7 +98,10 @@ def voice_call(pipeline, prompt, schema, context, texts, *, purpose, trace):
             attempts[-1]['check']['error'] = 'voice check failed'
             raise
         attempts[-1]['check'] = result.trace()
-        return not VoiceCheck.model_validate(result.parsed).problems
+        checked = VoiceCheck.model_validate(result.parsed)
+        if not checked.problems:
+            trace['used_private_followups'] = checked.used_private_followups
+        return not checked.problems
 
     result = display_call(generate, lambda r: r.parsed.model_dump().values(), validate=validate)
     # Retain the existing top-level usage metadata used by trace retention.

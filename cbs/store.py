@@ -178,6 +178,7 @@ class Store(MemoryStore, InterestStore, AutonomyStore, StorageStore, ReadingStor
                 connection.execute("UPDATE conversations SET last_activity_at=? WHERE id=?", (turn["created_at"], cid))
             connection.execute("UPDATE episodes SET conversation_id=(SELECT conversation_id FROM turns WHERE id=source_turn) WHERE conversation_id IS NULL")
             self.migrate_preferences(connection)
+            self.migrate_private_mentions(connection)
             columns = {row[1] for row in connection.execute("PRAGMA table_info(ledger_events)")}
             for name, sql_type in (("plan_id", "INTEGER"), ("scheduled_text", "TEXT"), ("scheduled_date", "TEXT")):
                 if name not in columns:
@@ -493,11 +494,11 @@ class Store(MemoryStore, InterestStore, AutonomyStore, StorageStore, ReadingStor
                                "WHERE s.character_id=? AND t.status='completed'", (cid,)).fetchone()[0]
             used = db.execute("SELECT created_at FROM proactive_runs WHERE character_id=? AND early_domain IS NOT NULL "
                               "AND source_turn IS NOT NULL", (cid,)).fetchall()
-        today = clock.now().date()
-        age = (today - clock.parse(first).date()).days if first else 0
+        today = clock.today()
+        age = (today - clock.local_date(first)).days if first else 0
         if not 0 <= age < config.days or len(used) >= config.total_max:
             return []
-        if sum(clock.parse(r[0]).date() == today for r in used) >= config.daily_max:
+        if sum(clock.local_date(r[0]) == today for r in used) >= config.daily_max:
             return []
         return [{"id": d.id, "label": getattr(d, 'description', None) or d.label}
                 for d in self.current_model(character).domains if d.status == 'open']

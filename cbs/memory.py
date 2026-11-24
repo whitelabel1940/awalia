@@ -374,7 +374,8 @@ def episodize(pipeline, job, *, followups=True):
     try:
         context = {"conversation_id": job["conversation_id"], "turns": [timed_turn({k: v for k, v in t.items() if k != "trace_json"}) for t in turns],
                    "current_threads": store.list_threads(pipeline.config.character.id),
-                   "private_categories": pipeline.config.knowing.model_dump()['private_categories'],
+                   "private_categories": store.private_settings(pipeline.config.character.id),
+                   "private_facts_policy": store.private_context(pipeline.config.character.id),
                    "current_user_facts": [timed_memory(f) for f in store.list_user_facts(pipeline.config.character.id, current_only=True)],
                    "current_interests": [timed_interest(i) for i in store.list_interests(pipeline.config.character.id)]}
         if not followups:
@@ -455,7 +456,7 @@ def finish_memory_followups(pipeline, job):
 def catch_up_diaries(pipeline, job):
     """Today's pass skips a day whose conversation was still open; write it once that conversation is saved."""
     store, cid = pipeline.store, pipeline.config.character.id
-    today = clock.now().date().isoformat()
+    today = clock.today().isoformat()
     with store.connect() as db:
         # Before today's pass the pass itself will write the day; never race it.
         if not db.execute("SELECT 1 FROM memory_maintenance WHERE character_id=? AND local_day=? AND status IN ('completed','failed')",
@@ -527,7 +528,7 @@ def _daily_maintenance(pipeline):
     store, character_id = pipeline.store, pipeline.config.character.id
     from cbs.days import initialize_birthday
     initialize_birthday(pipeline)
-    today = clock.now().date().isoformat()
+    today = clock.today().isoformat()
     legacy_trace, legacy_status = None, None
     with store.connect() as connection:
         if not connection.execute("INSERT OR IGNORE INTO memory_maintenance (character_id, local_day, status) VALUES (?, ?, 'running')",

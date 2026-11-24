@@ -67,7 +67,7 @@ def test_direct_preset_roundtrip_and_connection_use_fake_only(pipeline, tmp_path
     assert response.status_code == 200, response.text
     assert response.json()['models'] == direct
     assert client.post('/api/settings/connection').json()['status'] == 'connected'
-    assert len(pipeline.client.calls) == 3
+    assert len(pipeline.client.calls) == 4
     assert client.post('/api/setup/voice-step', json={'skipped': True}).status_code == 200
     assert client.get('/api/settings').json()['voice_setup_done']
     saved = load_config(data_dir=tmp_path / 'settings')

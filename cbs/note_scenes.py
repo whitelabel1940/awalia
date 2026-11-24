@@ -64,7 +64,7 @@ def sources(store, character):
             continue
         t = turns[e['source_turn']]
         episodes[e['id']] = {k: e[k] for k in ('id', 'domain', 'mode', 'situation', 'reaction', 'salient_conditions', 'source_turn')}
-        episodes[e['id']]['date'] = clock.parse(t['assistant_at'] or t['created_at']).date().isoformat()
+        episodes[e['id']]['date'] = clock.local_date(t['assistant_at'] or t['created_at']).isoformat()
     versions = store.list_model_versions(cid)
     valid_refs = {r for v in versions if not v['invalidated'] for r in v['episode_refs']}
     invalid_refs = {r for v in versions if v['invalidated'] for r in v['episode_refs']} - valid_refs
@@ -116,7 +116,7 @@ def save_state(pipeline, state, *, notice_turn=None):
             turn = db.execute('SELECT t.* FROM turns t JOIN sessions s ON s.id=t.session_id WHERE t.id=? AND s.character_id=?',
                               (notice_turn, cid)).fetchone()
             if turn and turn['status'] == 'completed':
-                day = clock.parse(turn['assistant_at'] or turn['created_at']).date().isoformat()
+                day = clock.local_date(turn['assistant_at'] or turn['created_at']).isoformat()
                 db.execute('INSERT OR IGNORE INTO forming_notices VALUES (?,?,?,?)', (cid, day, notice_turn, clock.iso()))
 
 

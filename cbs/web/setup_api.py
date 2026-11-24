@@ -40,6 +40,7 @@ def install_setup(app, pipeline, data_dir, current, atomic_write):
         # STT has its own capability/key check. Changing it must not repeat the
         # four foreground conversation checks (SP1), or invalidate existing checks.
         models = cfg.models.model_dump(exclude={'stt'})
+        models['decision'] = models.get('decision') or ''
         providers = {RoutingLLMClient(cfg)._split(model)[0] for model in models.values() if model}
         # Only the digest is persisted. It invalidates a successful check after a
         # key, model or endpoint change, including externally changed env values.
@@ -106,9 +107,16 @@ def install_setup(app, pipeline, data_dir, current, atomic_write):
                 messages = [{"role": "user", "content": "接続確認"}]
                 if not for_step(client, 'connection', 'other').generate_text(models.actor, prompt, messages).text.strip():
                     raise ValueError()
-                stage = "判断"
+                stage = "返事の確認"
                 if not ConnectionCheck.model_validate(for_step(client, 'connection', 'other').generate_json(models.judge, prompt, messages, ConnectionCheck).parsed).ok:
                     raise ValueError()
+                from cbs.decision import skip_reason
+                if models.decision and not skip_reason(cfg):
+                    stage = '場面の読み取り'
+                    questions = json.loads(read_prompt('decision_questions'))
+                    for_step(client, 'connection', 'other').decide(models.decision, json.dumps({
+                        'instructions': read_prompt('decision_choices'), 'original_system': prompt,
+                        'original_messages': messages}, ensure_ascii=False), {'connection': questions['asks_about_past']})
                 stage = "記憶の整理"
                 if not StewardConnectionCheck.model_validate(for_step(client, 'connection', 'other').generate_json(models.steward, prompt, messages, StewardConnectionCheck).parsed).ok:
                     raise ValueError()

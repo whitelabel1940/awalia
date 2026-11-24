@@ -1,0 +1,13 @@
+# cargo audit exceptions. Each entry says why it does not apply and when it ends.
+# The fixed versions are newer than the 7-day rule in docs/NOTES.md allows, so they
+# are taken in the next release (0.2.1) and these lines are removed then.
+[advisories]
+ignore = [
+    # url 2.5.8: stack overflow in Url::origin() on nested blob: URLs (a crash, not a leak).
+    # The shell only opens its own local pages. Fix 2.5.9 (2026-11-20) usable from 2026-11-27.
+    "RUSTSEC-2026-0592",
+    # cookie 0.18.2: private-cookie nonces can repeat after fork(). Tauri enables only the
+    # default features (the private feature is not compiled in) and Windows has no fork.
+    # Fix 0.18.3 (2026-11-23) usable from 2026-11-30.
+    "RUSTSEC-2026-0594",
+]

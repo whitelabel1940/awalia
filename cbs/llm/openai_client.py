@@ -11,6 +11,27 @@ from cbs.llm.errors import provider_error
 from cbs.llm import LLMError, LLMResult, image_messages, sanitize_content
 
 
+# Google behind OpenRouter rejects strict schemas whose value limits multiply into too many states
+# ("too many states for serving"), e.g. EpisodizerOutput's nested source_turns (maxItems 40 inside 12).
+# The limits are dropped only from what is sent; the reply is still validated against the full schema.
+VALUE_LIMITS = frozenset(('minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum',
+                          'minLength', 'maxLength', 'minItems', 'maxItems', 'pattern', 'format'))
+
+
+def without_value_limits(schema):
+    if isinstance(schema, dict):
+        return {k: without_value_limits(v) for k, v in schema.items() if k not in VALUE_LIMITS}
+    if isinstance(schema, list):
+        return [without_value_limits(v) for v in schema]
+    return schema
+
+
+def response_schema(name, model, schema):
+    from openai.lib._pydantic import to_strict_json_schema
+    strict = to_strict_json_schema(schema)
+    return without_value_limits(strict) if name == 'openrouter' and model.startswith('google/') else strict
+
+
 class OpenAILLMClient:
     """OpenAI Responses API, or Chat Completions for OpenAI-compatible local servers (Ollama, LM Studio, llama.cpp)."""
 
@@ -83,7 +104,6 @@ class OpenAILLMClient:
         return self._generate(model, system, messages, schema)
 
     def generate_video_json(self, model, system, url, schema):
-        from openai.lib._pydantic import to_strict_json_schema
         from cbs.media import youtube_url
         if self.name != 'openrouter' or model != 'google/gemini-3.8-flash' or not youtube_url(url):
             raise LLMError('この設定またはURLでは動画入力を利用できません。')
@@ -94,7 +114,7 @@ class OpenAILLMClient:
                           {'role': 'user', 'content': [
                               {'type': 'video_url', 'video_url': {'url': youtube_url(url)}}]}],
                 response_format={'type': 'json_schema', 'json_schema': {
-                    'name': schema.__name__, 'schema': to_strict_json_schema(schema), 'strict': True}},
+                    'name': schema.__name__, 'schema': response_schema(self.name, model, schema), 'strict': True}},
                 extra_body={'provider': {'only': ['Google AI Studio'], 'allow_fallbacks': False, **({'zdr': True} if self._zdr else {})}})
             report_response(response, 'usage')
             text = self.sanitize_text(response.choices[0].message.content or '')
@@ -217,9 +237,8 @@ class OpenAILLMClient:
                 if schema:
                     # Strict structured output (OpenAI behind OpenRouter) rejects schemas whose optional
                     # fields are not all listed in "required"; convert the same way responses.parse does.
-                    from openai.lib._pydantic import to_strict_json_schema
                     options["response_format"] = {"type": "json_schema", "json_schema": {
-                        "name": schema.__name__, "schema": to_strict_json_schema(schema), "strict": True}}
+                        "name": schema.__name__, "schema": response_schema(self.name, model, schema), "strict": True}}
                 response = self._client.chat.completions.create(**options, **self._chat_extra(role, grounded, include_domains))
                 upstream_provider = getattr(response, "provider", None)
                 if upstream_provider:

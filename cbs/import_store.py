@@ -101,6 +101,7 @@ class ImportStore:
         Later batch journals are rebased too, so undoing A then B cannot resurrect A.
         Derived links/digests/understandings using removed evidence are invalidated.
         """
+        deleted_turns = []
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             db.execute('PRAGMA defer_foreign_keys=ON')
@@ -178,6 +179,7 @@ class ImportStore:
                 if not sid:
                     continue
                 tids = [r[0] for r in db.execute('SELECT id FROM turns WHERE session_id=?',(sid,))]
+                deleted_turns.extend(dict(r) for r in db.execute('SELECT id AS turn_id,session_id,created_at FROM turns WHERE session_id=?', (sid,)))
                 for tid in tids:
                     db.execute('DELETE FROM pending_corrections WHERE source_turn=?',(tid,))
                     db.execute('UPDATE pending_corrections SET consumed_turn=NULL WHERE consumed_turn=?',(tid,))
@@ -203,3 +205,5 @@ class ImportStore:
             db.execute("UPDATE import_reviews SET text='',candidates_json='[]' WHERE id=? AND character_id=?",(batch_id,character_id))
             db.execute('DELETE FROM import_changes WHERE batch_id=?',(batch_id,))
             self._knowing_revision(db,character_id)
+        if research := getattr(self, 'research', None):
+            research.mark_deleted(deleted_turns, 'import_undo')

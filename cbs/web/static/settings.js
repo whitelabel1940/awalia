@@ -150,7 +150,7 @@ export async function settingsScreen(parent, name, {setup=false}={}) {
     const preset=presets.find(p=>p.id===id);if(!preset)return;
     for(const [role,value] of Object.entries(preset.models)){
       if(role==='research'){draft.models.research=value;researchModel.value=value;continue;}
-      if(['vision','stt'].includes(role)&&!value){roles[role]={provider:'none',model:''};roleInputs[role].provider.value='none';roleInputs[role].model.value='';continue;}
+      if(['decision','vision','stt'].includes(role)&&!value){roles[role]={provider:'none',model:''};roleInputs[role].provider.value='none';roleInputs[role].model.value='';continue;}
       const [provider,...model]=value.split('/');roles[role]={provider,model:model.join('/')};
       roleInputs[role].provider.value=provider;roleInputs[role].model.value=model.join('/');
     }
@@ -159,26 +159,28 @@ export async function settingsScreen(parent, name, {setup=false}={}) {
   const zdrLabel=node('label',undefined,'switch'),zdr=node('input');zdr.type='checkbox';zdr.checked=draft.llm.zdr_only;zdr.onchange=()=>draft.llm.zdr_only=zdr.checked;
   zdrLabel.append(zdr,node('span','会話を保存しない提供元だけを使う（OpenRouter）'));ai.append(zdrLabel);
   ai.append(node('p','オンにすると、送った内容を保存しないと申告している提供元だけを使います。使える提供元が減るため、返事が遅くなったり、混み合って失敗したりすることがあります。動画を観る活動は使えなくなります。どの提供元も会話を学習には使わないと申告しています。OpenRouter 以外の接続（Gemini 直接・ローカルモデル）には影響しません。','small muted'));
-  function showMode(){for(const role of ['embedding','stt'])if(localBoxes[role])localBoxes[role].hidden=roles[role].provider!=='local';simple.hidden=draft.llm.mode!=='simple';advanced.hidden=draft.llm.mode!=='advanced';for(const input of advanced.querySelectorAll('input,select'))input.disabled=draft.llm.mode!=='advanced';for(const role of ['vision','stt'])if(roleInputs[role]){roleInputs[role].model.disabled=draft.llm.mode!=='advanced'||roles[role].provider==='none';roleInputs[role].model.required=roles[role].provider!=='none';}void downloads.refresh();void sttDownloads.refresh();}
+  function showMode(){for(const role of ['embedding','stt'])if(localBoxes[role])localBoxes[role].hidden=roles[role].provider!=='local';simple.hidden=draft.llm.mode!=='simple';advanced.hidden=draft.llm.mode!=='advanced';for(const input of advanced.querySelectorAll('input,select'))input.disabled=draft.llm.mode!=='advanced';for(const role of ['decision','vision','stt'])if(roleInputs[role]){roleInputs[role].model.disabled=draft.llm.mode!=='advanced'||roles[role].provider==='none';roleInputs[role].model.required=roles[role].provider!=='none';}void downloads.refresh();void sttDownloads.refresh();}
   const providerOptions={gemini:'Gemini',anthropic:'Claude（Anthropic）',openai:'OpenAI',openrouter:'OpenRouter',local:'ローカル（OpenAI 互換）'};
   for(const p of Object.keys(cfg.llm.providers))if(!providerOptions[p])providerOptions[p]=`ローカル（${p}）`;
   const roles={},roleInputs={},localBoxes={},lastProvider={};
   // The model a provider uses for this role: its transcription candidate, a preset's choice, or the first local model.
   const defaultModel=(role,provider)=>{
+    if(role==='decision')return provider==='openrouter'?'openrouter/google/gemini-decision-1':provider==='gemini'?'gemini/gemini-decision-1':'';
     if(role==='stt'){const local=Object.keys(cfg.stt?.local_models||{})[0];return provider==='local'?(local&&'local/'+local):Object.keys(cfg.stt?.candidates||{}).find(m=>m.startsWith(provider+'/'));}
     return provider==='local'?'local/ruri-v3-130m':presets.map(p=>p.models[role]).find(m=>m?.startsWith(provider+'/'));
   };
   function syncPreset(){
     const values={...Object.fromEntries(Object.entries(roles).map(([role,r])=>[role,r.provider==='none'?'':`${r.provider}/${r.model.trim()}`])),research:draft.models.research};
-    const selected=presets.find(p=>Object.entries(p.models).every(([role,model])=>values[role]===model));
+    const selected=presets.find(p=>Object.entries(p.models).every(([role,model])=>(values[role]||'')===(model||'')));
     presetChoice.value=selected?.id||'custom';presetNote.textContent=selected?.description||'';
   }
-  for(const [role,title,desc] of [['actor','会話','話す言葉をつくります'],['judge','判断','場面や返答を確かめます'],['steward','記憶の整理','経験を手帖に残します'],['embedding','記憶の検索','話に合う記憶を探します'],['vision','写真の読み取り','写真を一度だけ説明文にします'],['stt','文字起こし','声を文字にして入力欄へ入れます']]){
-    const [provider,...model]=((cfg.advanced_models||cfg.models)[role]||(['vision','stt'].includes(role)?'none/':'gemini/')).split('/');roles[role]={provider,model:model.join('/')};lastProvider[role]=provider;
+  for(const [role,title,desc] of [['actor','会話','話す言葉をつくります'],['decision','場面の読み取り','話の重さや、どの記憶・約束が今の話に関係するかを、返事の前に素早く見分けます'],['judge','返事の確認','返事が記憶や設定とずれていないか確かめ、約束や出来事を書き留めます'],['steward','記憶の整理','経験を手帖に残します'],['embedding','記憶の検索','話に合う記憶を探します'],['vision','写真の読み取り','写真を一度だけ説明文にします'],['stt','文字起こし','声を文字にして入力欄へ入れます']]){
+    const [provider,...model]=((cfg.advanced_models||cfg.models)[role]||(['decision','vision','stt'].includes(role)?'none/':'gemini/')).split('/');roles[role]={provider,model:model.join('/')};lastProvider[role]=provider;
     const row=node('div',undefined,'srow');row.append(node('p',desc,'small muted'));advanced.append(row);
-    roleInputs[role]=modelRoleFields(row,title,role==='embedding'?{...Object.fromEntries(Object.entries(providerOptions).filter(([p])=>p!=='anthropic')),local:'ローカルモデル（ruri）'}:role==='stt'?{none:'使わない',gemini:'Gemini',openai:'OpenAI',openrouter:'OpenRouter',local:'ローカルモデル（Haas-ja）'}:role==='vision'?{none:'使わない',...providerOptions}:providerOptions,()=>roles[role],()=>{
+    if(role==='decision')row.append(node('p','選ぶことに特化したモデルです。返事が出るまでが約3秒短くなります。','small muted'));
+    roleInputs[role]=modelRoleFields(row,title,role==='decision'?{openrouter:'OpenRouter',gemini:'Gemini',none:'返事の確認と同じ AI'}:role==='embedding'?{...Object.fromEntries(Object.entries(providerOptions).filter(([p])=>p!=='anthropic')),local:'ローカルモデル（ruri）'}:role==='stt'?{none:'使わない',gemini:'Gemini',openai:'OpenAI',openrouter:'OpenRouter',local:'ローカルモデル（Haas-ja）'}:role==='vision'?{none:'使わない',...providerOptions}:providerOptions,()=>roles[role],()=>{
       // A service's own transcription model replaces a local model name (and the reverse).
-      if(['stt','embedding'].includes(role)&&roles[role].provider!==lastProvider[role]){
+      if(['decision','stt','embedding'].includes(role)&&roles[role].provider!==lastProvider[role]){
         lastProvider[role]=roles[role].provider;
         const provider=roles[role].provider,known=defaultModel(role,provider);
         roles[role].model=known?known.split('/').slice(1).join('/'):'';roleInputs[role].model.value=roles[role].model;
@@ -206,7 +208,7 @@ export async function settingsScreen(parent, name, {setup=false}={}) {
   const credentials=node('div');advanced.append(credentials);const keyFields={}, localFields={};
   const warnings=node('div');warnings.setAttribute('role','status');advanced.append(warnings);
   function renderCredentials() {
-    for(const role of ['stt','embedding'])if(roles[role])lastProvider[role]=roles[role].provider;  // presets and local picks change it without the select
+    for(const role of ['decision','stt','embedding'])if(roles[role])lastProvider[role]=roles[role].provider;  // presets and local picks change it without the select
     const used=new Set(Object.values(roles).map(r=>r.provider));if(draft.autonomy.research)used.add((draft.models.research||'gemini/').split('/')[0]);
     credentials.replaceChildren();
     for(const p of [...used].filter(p=>p!=='none')){

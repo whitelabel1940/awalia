@@ -2,6 +2,7 @@ import {saveOnEdit} from './settings-save.js';
 import {notice,choiceCards} from './onboarding.js';
 import {api, scoped, node, field, select, action, card, icon} from './ui.js';
 import {isResident, residentVisible, refreshResidentVisible} from './resident.js';
+import {voiceTips} from './voice-tips.js';
 let config={enabled:false,autoplay:true}, current, request, objectUrl, generation=0, finishPlayback, automaticPlayback=false, resetControl;
 function playbackVolume(){try{const value=localStorage.getItem('cbs.voiceVolume');const number=value===null?1:Number(value);return Number.isFinite(number)?Math.min(1,Math.max(0,number)):1;}catch{return 1;}}
 let volume=playbackVolume();
@@ -158,7 +159,7 @@ export async function voiceSettings(form,draft,{setup=false,pageSave=false,onboa
   const volumeValue=node('output',`${Math.round(volume*100)}%`);volumeInput.parentElement.classList.add('volume-field');const volumeRow=node('div',undefined,'row volume-row');volumeInput.parentElement.append(volumeRow);volumeRow.append(volumeInput,volumeValue);
   root.append(node('p','この端末に保存します。保存した音声は変わりません。','small muted'));
   const engineInput=select(root,'音声のエンジン',{'speech.cpp':onboarding?'ローカルモデル（おすすめ）':'このPC（speech.cpp / Irodori）',external:'外部の音声サーバー'},draft.tts.engine,v=>{draft.tts.engine=v;showEditor();});
-  const engineChoice=onboarding?choiceCards(root,'声のエンジン',[['speech.cpp','ローカルモデル','このパソコンで声を作ります。'],['external','外部の音声サーバー','用意した音声サーバーを使います。']],draft.tts.engine,v=>{draft.tts.engine=v;engineInput.value=v;}):engineInput.parentElement;
+  const engineChoice=onboarding?choiceCards(root,'声のエンジン',[['speech.cpp','ローカルモデル','このパソコンで声を作ります。'],['external','外部の音声サーバー','自分で音声サーバーを用意している人向けです。分からなければローカルモデルを選んでください。']],draft.tts.engine,v=>{draft.tts.engine=v;engineInput.value=v;}):engineInput.parentElement;
   if(onboarding)engineInput.parentElement.hidden=true;
   const downloads=node('div');root.append(downloads);
   await downloadControls(downloads,draft,state=>{ready=state.status==='ready';showEditor();},{onboarding,chooseModel:allowDisabled});
@@ -201,6 +202,7 @@ export async function voiceSettings(form,draft,{setup=false,pageSave=false,onboa
   renderReferences(result);
   action(clone,'すべて外す',async()=>{renderReferences(await api(prefix+'/references',{},'DELETE'));status.textContent='一覧を空にしました。現在の声は変わりません。';});
   const drop=node('label','WAVを追加する、またはここへドロップ','voice-drop'),file=node('input');file.type='file';file.accept='.wav,audio/wav';file.multiple=true;drop.append(file);clone.append(drop);
+  voiceTips(clone);
   async function upload(files){
     for(const value of files){
       if(value.size>20*1024*1024)throw new Error('WAVは20MB以下にしてください。');

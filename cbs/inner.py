@@ -31,6 +31,7 @@ class Feeling(InnerField):
 class Want(InnerField):
     operation: Literal['new', 'append', 'skip'] = 'new'
     private: bool = False
+    fact_ref: str | None = None
     thread_ref: str | None = None
     direction: Direction
     motive: str = Field(min_length=1, max_length=600)
@@ -96,7 +97,12 @@ def update_inner(pipeline, trigger_ref, event):
                 if want.trigger_ref not in allowed_triggers or (want.thread_ref and want.thread_ref not in available):
                     trace.setdefault('warnings', []).append('想いの未知の参照を除外しました。')
                     continue
-                if want.private and not (want.thread_ref and available[want.thread_ref].get('private') and available[want.thread_ref].get('may_initiate')):
+                allowed_fact = next((f for f in context['private_facts_policy'] if f['ref'] == want.fact_ref and f['allow_mention']), None)
+                if want.fact_ref and (not want.private or not allowed_fact or
+                                     (want.thread_ref and available[want.thread_ref]['source_ref'] != want.fact_ref)):
+                    trace.setdefault('warnings', []).append('想いの私的な事実の参照を除外しました。')
+                    continue
+                if want.private and not allowed_fact and not (want.thread_ref and available[want.thread_ref].get('private') and available[want.thread_ref].get('may_initiate')):
                     if want.thread_ref:
                         old = db.execute('SELECT * FROM threads WHERE id=? AND character_id=?', (available[want.thread_ref]['id'],cid)).fetchone()
                         store._thread_status(db,old,'dropped')
@@ -109,7 +115,12 @@ def update_inner(pipeline, trigger_ref, event):
                     trace.setdefault('warnings', []).append('使用済みの想いには明示された新しい点だけ追記できます。')
                     continue
                 shared = not want.thread_ref or available[want.thread_ref]['kind'] in ('share', 'want')
-                if shared:
+                if shared and want.private and allowed_fact and not want.thread_ref:
+                    if db.execute("SELECT 1 FROM threads WHERE character_id=? AND kind='want' AND source_ref=?", (cid, want.fact_ref)).fetchone():
+                        trace.setdefault('warnings', []).append('既存の私的な想いには新しい点の明示された追記が必要です。')
+                        continue
+                    tid = store._thread(db, cid, 'want', want.topic, want.detail, want.fact_ref, want.weight)
+                elif shared:
                     tid = store.apply_share_choice(db, cid, ShareChoice(
                         operation='append' if want.thread_ref else 'new', thread_ref=want.thread_ref, detail=want.detail),
                         threads, want.topic, want.detail, f'inner_update:{run_id}:{n}', want.weight, kind='want')
@@ -124,6 +135,7 @@ def update_inner(pipeline, trigger_ref, event):
                 store._thread_history(db, tid, 'inner_update', before)
             db.execute('INSERT INTO monologues (character_id,created_at,text,trigger_ref) VALUES (?,?,?,?)',
                        (cid, clock.iso(), monologue.text, trigger_ref))
+            store.consume_private_followups(db, cid, trace.get('used_private_followups', []))
             db.execute("UPDATE inner_update_runs SET status='completed',trace_json=? WHERE id=?",
                        (dump_trace(pipeline._safe_trace(trace)), run_id))
     except Exception as error:
@@ -142,7 +154,7 @@ def update_inner(pipeline, trigger_ref, event):
 def update_long_gap(pipeline):
     previous = pipeline.store.previous_utterance(pipeline.config.character.id)
     if previous and (clock.now() - clock.parse(previous)).total_seconds() >= pipeline.config.inner.long_gap_hours * 3600:
-        update_inner(pipeline, f'gap:{previous}:{clock.now().date().isoformat()}',
+        update_inner(pipeline, f'gap:{previous}:{clock.today().isoformat()}',
                      {'kind': 'gap', 'previous_utterance': previous, 'elapsed': clock.gap(previous)})
 
 

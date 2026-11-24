@@ -53,7 +53,7 @@ for(const failure of [false,true]){
  fail=failure;void onboardingAI(root,{repair:true});await tick();await next();await next();
  const checking=next();await tick();
  const waiting=root.querySelector('section.card .progress.working:not(#progress)');assert(waiting);assert.equal(waiting.getAttribute('role'),'status');
- assert(waiting.textContent.includes('会話・判断・記憶の整理・記憶の検索の4つの役'));assert(waiting.textContent.includes('数秒〜30秒'));
+ assert(waiting.textContent.includes('会話・返事の確認・記憶の整理・記憶の検索と、使う時は場面の読み取り'));assert(waiting.textContent.includes('数秒〜30秒'));
  assert(root.querySelector('.primary').disabled);assert(!root.classList.contains('onboarding-centered'));
  resolveCheck();await checking;await tick();assert(!waiting.isConnected);
  if(failure){assert(root.querySelector('[role=alert]'));assert(root.querySelector('.primary').disabled);}else{assert(root.querySelector('.success'));assert(!root.querySelector('.primary').disabled);}

@@ -245,7 +245,7 @@ def test_shrink_stops_between_rows_and_retries(store, monkeypatch):
     assert 'request' not in store.get_trace(ids[0])['Check']
     assert 'request' in store.get_trace(ids[1])['Check']  # In-flight row rolled back.
     with store.connect() as db:
-        assert db.execute('SELECT count(*) FROM storage_migrations').fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM storage_migrations WHERE name='trace-zlib-v1'").fetchone()[0] == 0
         assert db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
     store.upkeep_stop.clear()
     monkeypatch.setattr(storage, 'dump_trace', original)

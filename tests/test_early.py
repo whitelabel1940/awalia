@@ -91,9 +91,9 @@ def test_early_window_caps_and_open_only(store, character):
         assert store.early_candidates(character, cfg)
         record(store, character)
         assert 'CBS10' not in {d['id'] for d in store.early_candidates(character, cfg)}
-    with clock.at('2026-10-22 23:59'):
-        assert store.early_candidates(character, cfg)
-    with clock.at('2026-10-23 00:00'):
+    with clock.at('2026-10-23 03:59'):
+        assert store.early_candidates(character, cfg)   # still the night of 10/22
+    with clock.at('2026-10-23 04:00'):
         assert not store.early_candidates(character, cfg)
     sid = store.create_session('fixture')['id']
     conv = store.prepare_conversation(sid, clock.iso())

@@ -1,12 +1,32 @@
 import {api,node,action,field,select,confirmDialog,report} from './ui.js';
 
+// D3: the changed meaning is announced where the user is (above the composer), not only in the note.
+let mentionLater=false,focusPrivate=false;
+export async function checkMentionNotice(name='パートナー'){
+  if(mentionLater||document.querySelector('[data-mention-float]'))return;
+  let data;try{data=await api('/api/note/private-settings');}catch{return;}
+  if(!data.mention_notice||mentionLater||document.querySelector('[data-mention-float]'))return;
+  const card=node('div',undefined,'backup-notice');card.dataset.mentionFloat='';card.setAttribute('role','status');
+  card.append(node('p',`プライベートなことの「触れてよい」の意味が変わりました。チェックしたことは、${name}が日常の話題にしてよいことになります。今のチェックはいったん外してあるので、ノートの「あなたのこと」で選び直してください。`));
+  const row=node('div',undefined,'row');card.append(row);
+  action(row,'選び直す',()=>{card.remove();focusPrivate=true;location.hash='#note/user';},true);
+  action(row,'あとで',()=>{mentionLater=true;card.remove();});
+  document.body.append(card);
+}
+
 export async function privateSettings(parent,refresh,name='パートナー') {
   const data=await api('/api/note/private-settings');
-  const section=node('section',undefined,'card set');section.append(node('h3','プライベートなことの気にかけ方'),node('p',`あなたが一度話した健康・宗教・政治などのことに、${name}のほうから後で触れてよいかを、種類ごとに決めます。触れてよい時も、一度だけやさしく様子を聞きます。話していないことを推測したり持ち出したりはしません。事実ごとの指定は「もっとプライベートなこと」で変えられます。`,'small muted'));parent.append(section);
+  const section=node('section',undefined,'card set');section.append(node('h3','プライベートなことの気にかけ方'),node('p',`チェックしたことは、${name}からも日常の話題にしてよいという意味です。今の話に関係がある時に触れ、毎回は持ち出しません。チェックなしでは基本的に触れず、あなたが今回話した時に応じます。一時的な体調の出来事だけは、チェックなしでも一度だけやさしく様子を聞きます。話していない事情を推測したり、診断・治療・投資などの指図をしたりはしません。事実ごとの「触れないで」が優先します。「もっとプライベートなこと」で変えられます。`,'small muted'));parent.append(section);
+  if(focusPrivate){focusPrivate=false;section.id='private-settings';requestAnimationFrame(()=>section.scrollIntoView?.({block:'start'}));}
+  const done=()=>{notice.hidden=true;document.querySelector('[data-mention-float]')?.remove();};
+  const notice=node('div');notice.dataset.privateMentionNotice='';notice.hidden=!data.mention_notice;
+  notice.append(node('p','「触れてよい」の意味が変わりました。日常の話題にしてよいものを選び直してください。','small'));
+  action(notice,'この設定で保存する',async()=>{await api('/api/note/private-settings',{categories:Object.fromEntries(Object.entries(data.categories).map(([key,value])=>[key,value.allow_mention]))},'PUT');done();await refresh?.();});
+  section.append(notice);
   for(const [key,value] of Object.entries(data.categories)){
     const label=node('label',undefined,'switch'),input=node('input');input.type='checkbox';input.checked=value.allow_mention;
     label.append(input,node('span',value.label));section.append(label);
-    input.onchange=async()=>{input.disabled=true;try{await api('/api/note/private-settings',{categories:{[key]:input.checked}},'PUT');value.allow_mention=input.checked;await refresh?.();}catch(e){input.checked=value.allow_mention;report(e);}finally{input.disabled=false;}};
+    input.onchange=async()=>{input.disabled=true;try{await api('/api/note/private-settings',{categories:{[key]:input.checked}},'PUT');value.allow_mention=input.checked;done();await refresh?.();}catch(e){input.checked=value.allow_mention;report(e);}finally{input.disabled=false;}};
   }
 }
 
@@ -32,8 +52,8 @@ function facts(parent,items,refresh,name,view,key){
       if(fact.private){
         if(fact.category_label)row.append(node('p',fact.category_label,'small muted'));
         const initial=fact.mention_override==null?'default':String(fact.mention_override);
-        const choice=select(row,`${name}からこの話に触れてよい？`,{default:`種類の設定に従う${fact.category_allow_mention==null?'':fact.category_allow_mention?'（触れてよい）':'（触れない）'}`,true:`${name}から触れてよい`,false:'触れないで'},initial,async value=>{
-          choice.disabled=true;try{await api(`/api/note/facts/${fact.id}/mention`,{mention_override:value==='default'?null:value==='true'},'PUT');fact.mention_override=value==='default'?null:value==='true';}catch(e){choice.value=fact.mention_override==null?'default':String(fact.mention_override);report(e);}finally{choice.disabled=false;}
+        const choice=select(row,`${name}からこの話に触れてよい？`,{default:`種類の設定に従う${fact.category_allow_mention==null?'':fact.category_allow_mention?'（日常の話題にしてよい）':'（基本は触れない）'}`,true:`${name}から日常の話題にしてよい`,false:'触れないで'},initial,async value=>{
+          choice.disabled=true;try{await api(`/api/note/facts/${fact.id}/mention`,{mention_override:value==='default'?null:value==='true'},'PUT');fact.mention_override=value==='default'?null:value==='true';await refresh?.();}catch(e){choice.value=fact.mention_override==null?'default':String(fact.mention_override);report(e);}finally{choice.disabled=false;}
         });
       }
       action(controls,'直す',()=>{const edit=node('div',undefined,'set');let content=fact.content;field(edit,'話したこと',content,v=>content=v,'textarea');const privacy=node('label'),check=node('input');check.type='checkbox';check.checked=fact.private;privacy.append(check,node('span','もっとプライベートなこと'));edit.append(privacy);action(edit,'保存する',async()=>{await api(`/api/note/facts/${fact.id}`,{content,private:check.checked},'PUT');await refresh();});action(edit,'戻る',()=>{edit.remove();controls.hidden=false;});row.append(edit);controls.hidden=true;});

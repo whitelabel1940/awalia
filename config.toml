@@ -39,6 +39,7 @@ reasoning_effort = { actor = "low", judge = "low", steward = "low" }
 # base_url = "http://localhost:11434/v1"
 
 [models]
+decision = "gemini/gemini-decision-1"
 actor = "gemini-3.8-flash"
 # 判断層（Pre-Judge / Post-Check）は GPT-6 Luna（Decision Model 研究で精度・価格とも最良）
 judge = "openai/gpt-6-luna"
@@ -50,6 +51,7 @@ vision = "gemini-3.8-flash"
 stt = "gemini/gemini-3.8-flash"
 
 [simple.models]
+decision = "openrouter/google/gemini-decision-1"
 actor = "openrouter/google/gemini-3.8-flash"
 judge = "openrouter/openai/gpt-6-luna"
 steward = "openrouter/openai/gpt-6-luna"
@@ -63,24 +65,24 @@ stt = "openrouter/google/gemini-3.8-flash"
 id = "mixed"
 label = "複数の AI を組み合わせて使う（推奨）"
 description = "OpenRouter のキーひとつで、役ごとに AI を組み合わせます。"
-models = { actor = "openrouter/google/gemini-3.8-flash", judge = "openrouter/openai/gpt-6-luna", steward = "openrouter/openai/gpt-6-luna", embedding = "openrouter/google/gemini-embedding-2", research = "openrouter/google/gemini-3.8-flash", vision = "openrouter/google/gemini-3.8-flash", stt = "openrouter/google/gemini-3.8-flash" }
+models = { decision = "openrouter/google/gemini-decision-1", actor = "openrouter/google/gemini-3.8-flash", judge = "openrouter/openai/gpt-6-luna", steward = "openrouter/openai/gpt-6-luna", embedding = "openrouter/google/gemini-embedding-2", research = "openrouter/google/gemini-3.8-flash", vision = "openrouter/google/gemini-3.8-flash", stt = "openrouter/google/gemini-3.8-flash" }
 
 [[advanced.presets]]
 id = "gemini"
 label = "Gemini だけで使う"
-models = { actor = "gemini/gemini-3.8-flash", judge = "gemini/gemini-3.8-flash", steward = "gemini/gemini-3.5-flash-lite", embedding = "gemini/gemini-embedding-2", research = "gemini/gemini-3.8-flash", vision = "gemini/gemini-3.8-flash", stt = "gemini/gemini-3.8-flash" }
+models = { decision = "gemini/gemini-decision-1", actor = "gemini/gemini-3.8-flash", judge = "gemini/gemini-3.8-flash", steward = "gemini/gemini-3.5-flash-lite", embedding = "gemini/gemini-embedding-2", research = "gemini/gemini-3.8-flash", vision = "gemini/gemini-3.8-flash", stt = "gemini/gemini-3.8-flash" }
 
 [[advanced.presets]]
 id = "claude"
 label = "Claude だけで使う"
 description = "記憶の検索は手元のモデルを使います（初回に取得が要ります）。会話の質を上げたい時は、会話のモデルを Claude Sonnet に変えられます（費用は約4倍）。"
-models = { actor = "anthropic/claude-haiku-5-5", judge = "anthropic/claude-haiku-5-5", steward = "anthropic/claude-haiku-5-5", embedding = "local/ruri-v3-130m", research = "anthropic/claude-haiku-5-5", vision = "anthropic/claude-haiku-5-5", stt = "local/haas-ja" }
+models = { decision = "", actor = "anthropic/claude-haiku-5-5", judge = "anthropic/claude-haiku-5-5", steward = "anthropic/claude-haiku-5-5", embedding = "local/ruri-v3-130m", research = "anthropic/claude-haiku-5-5", vision = "anthropic/claude-haiku-5-5", stt = "local/haas-ja" }
 
 [[advanced.presets]]
 id = "openai"
 label = "OpenAI だけで使う"
 description = "会話が役になりきりにくいことがあります。「AI なの？」と聞かれた時に、設定に関わらず AI だと答えてしまうことがあります。"
-models = { actor = "openai/gpt-6.1-sol", judge = "openai/gpt-6-luna", steward = "openai/gpt-6-luna", embedding = "openai/text-embedding-3-small", research = "openai/gpt-6-luna", vision = "openai/gpt-6.1-sol", stt = "openai/gpt-4o-mini-transcribe" }
+models = { decision = "", actor = "openai/gpt-6.1-sol", judge = "openai/gpt-6-luna", steward = "openai/gpt-6-luna", embedding = "openai/text-embedding-3-small", research = "openai/gpt-6-luna", vision = "openai/gpt-6.1-sol", stt = "openai/gpt-4o-mini-transcribe" }
 
 # 料金は入力/出力の100万トークンあたりUSD（2026-10-15の候補案）。
 # pending は UI に出さない。suite_v1 後に evidence と status を更新する。
@@ -144,7 +146,7 @@ evidence = "reports/C1_actor_compare.md: suite_v1 31/31、Opus が返答本文�
 
 [[simple.judge_candidates]]
 model = "openrouter/openai/gpt-6-luna"
-label = "標準の判断モデル"
+label = "標準の返事の確認モデル"
 description = "場面・返答・表情の判断に使用。"
 input_usd = 0.10
 output_usd = 0.50
@@ -159,6 +161,10 @@ pause_autonomy = false
 # 直接接続の料金は提供元の画面で確認して更新する。未登録は「不明」。
 # cache_read_usd / cache_write_usd は任意。キャッシュ使用時に単価未登録なら不明。
 # OpenRouterはこの表を使わず usage.cost、localは常に0。
+[costs.prices."gemini/gemini-decision-1"]
+input_usd = 0.10
+output_usd = 0
+
 [costs.prices."gemini/gemini-3.8-flash"]
 input_usd = 0.825
 output_usd = 4.125
@@ -212,7 +218,7 @@ question_gap_days = 7
 
 [knowing.private_categories.temporary_health]
 label = "一時的な体調の出来事"
-allow_mention = true
+allow_mention = false
 [knowing.private_categories.ongoing_health]
 label = "続いている健康の事情"
 allow_mention = false
@@ -407,7 +413,7 @@ split_three_chars = 140
 [[advanced.presets]]
 id = "recommended_direct"
 label = "おすすめの組み合わせ（OpenAI と Gemini）"
-models = { actor = "gemini/gemini-3.8-flash", judge = "openai/gpt-6-luna", steward = "openai/gpt-6-luna", embedding = "gemini/gemini-embedding-2", research = "gemini/gemini-3.8-flash", vision = "gemini/gemini-3.8-flash", stt = "gemini/gemini-3.8-flash" }
+models = { decision = "gemini/gemini-decision-1", actor = "gemini/gemini-3.8-flash", judge = "openai/gpt-6-luna", steward = "openai/gpt-6-luna", embedding = "gemini/gemini-embedding-2", research = "gemini/gemini-3.8-flash", vision = "gemini/gemini-3.8-flash", stt = "gemini/gemini-3.8-flash" }
 
 [[onboarding.actor_choices.gemini]]
 model = "gemini/gemini-3.8-flash"

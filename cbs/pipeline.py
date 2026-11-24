@@ -20,6 +20,7 @@ from cbs import clock
 from cbs.memory import timed_memory, timed_turn
 from cbs.storage import EmbeddingModelMismatch
 from cbs.timing import Timeline, current as current_timeline, span
+from cbs.research import activity as research_activity
 
 
 class JudgeField(BaseModel):
@@ -148,7 +149,7 @@ def assemble_packet(character, judge: PreJudge, *, current_datetime=None, previo
     candidate_memories = [m for m in candidate_memories if not m["ref"].startswith("thread:") or eligible(m, current)]
     private_allowed = {u.ref for u in judge.memory_use if u.private_topic_current == 'yes' and u.relevant_now == 'yes'}
     memories = {memory["ref"]: timed_memory(memory, current) for memory in candidate_memories
-                if not memory.get('private') or memory.get('may_initiate') or memory['ref'] in private_allowed
+                if not memory.get('private') or memory.get('allow_mention') or memory.get('may_initiate') or memory['ref'] in private_allowed
                 if not memory["ref"].startswith("fact:") or memory.get("status") == "current"}
     warnings += sorted({use.ref for use in judge.memory_use} - memories.keys())
     selected_canon = [memories[use.ref] for use in judge.memory_use
@@ -321,6 +322,8 @@ class TurnPipeline:
         self.store.initialize_interests(character)
         self.store.initialize_seed_memories(character)
         self.character = character.model_copy(update={'sources': self.store.author_sources(character)})
+        from cbs.research import attach
+        attach(self)
 
     def release_startup(self):
         """Reusable by web/resident/CLI hosts after their first foreground work.
@@ -359,6 +362,7 @@ class TurnPipeline:
             from cbs.autonomy import catch_up
             submit(self.store, catch_up, self)
 
+    @research_activity
     def proactive(self, session_id, mode="opening", *, after_turn_id=None):
         from cbs.autonomy import proactive
         cancel = Event()
@@ -391,6 +395,7 @@ class TurnPipeline:
             if self._opening_cancel is not None:
                 self._opening_cancel.set()
 
+    @research_activity
     def proactive_reply(self, session_id, decision, cancel):
         with self._lock:
             if cancel.is_set():
@@ -409,6 +414,7 @@ class TurnPipeline:
     def close_conversation(self, session_id):
         self.maintenance(session_id=session_id, close=True, retry=False, inner_life=False)
 
+    @research_activity
     def run(self, session_id, user_text, *, background_tasks=None, event_sink=None, photos=None):
         # Local app runs one worker; serialize turns so a double-send cannot read stale history.
         self.cancel_opening()
@@ -537,7 +543,14 @@ class TurnPipeline:
         self.store.expire_threads(self.config.character.id, self.config.autonomy.thread_expiry_days)
         self.store.sync_plan_threads(self.config.character.id)
         candidate_memories += self.store.list_threads(self.config.character.id, eligible_only=True)
+        # A thread just told stays visible for the rest of the conversation ("why that?").
+        candidate_memories += self.store.threads_told_in_conversation(self.config.character.id, conversation_id)
         candidate_memories += retrieved
+        if proactive_decision is not None and proactive_decision.fact_ref:
+            # A validated direct choice must survive retrieval's bounded fact pool.
+            candidate_memories += [{'ref': f"fact:{f['id']}", **f}
+                                   for f in self.store.list_user_facts(self.config.character.id, current_only=True)
+                                   if f"fact:{f['id']}" == proactive_decision.fact_ref and f['allow_mention']]
         from cbs.candidates import cap_candidates, candidate_counts
         candidate_pool_counts = candidate_counts(candidate_memories)
         if proactive_decision is None:
@@ -571,6 +584,8 @@ class TurnPipeline:
         trace['Load']['candidate_counts'] = {'before':candidate_pool_counts, 'after':candidate_counts(candidate_memories)}
         step = "Pre-Judge"
         step_started = perf_counter()
+        research_snapshot = None
+        decision_capture = {}
         try:
             from cbs.judge_input import prejudge_input
             judge_system, judge_context = prejudge_input(self.character, context)
@@ -578,6 +593,21 @@ class TurnPipeline:
             trace[step] = {"request": {"model": self.config.models.judge, "system": judge_system,
                            "messages": [{"role": "user", "content": json.dumps(judge_context, ensure_ascii=False)}], "schema": PreJudge.model_json_schema()}}
             judge_request = trace[step]['request']
+            from cbs.decision import prejudge as decision_prejudge, skip_reason
+            decision_trace = {}
+            decision_judgment = None
+            if self.config.models.decision and proactive_decision is None:
+                reason = skip_reason(self.config)
+                decision_trace = {'model': self.config.models.decision}
+                if reason:
+                    decision_trace['skip_reason'] = reason
+                else:
+                    try:
+                        decision_judgment = decision_prejudge(self.client, self.config, judge_system,
+                                                             judge_request['messages'], decision_trace, capture=decision_capture)
+                    except Exception:
+                        # Safe metadata only; the judge still receives its original input.
+                        pass
             degraded = False
             for attempt in range(2):
                 attempt_step = 'Pre-Judge' if attempt == 0 else 'Pre-Judge-Retry'
@@ -585,8 +615,11 @@ class TurnPipeline:
                 try:
                     if proactive_decision is not None:
                         from cbs.llm import LLMResult
-                        forced = PreJudge(memory_use=[MemoryUse(ref=proactive_decision.thread_ref, relevant_now="yes", counterevidence="no", continuation="yes")] if proactive_decision.thread_ref else [])
+                        selected_ref = proactive_decision.thread_ref or proactive_decision.fact_ref
+                        forced = PreJudge(memory_use=[MemoryUse(ref=selected_ref, relevant_now="yes", counterevidence="no", continuation="yes")] if selected_ref else [])
                         judgment = LLMResult(forced.model_dump_json(), forced, {}, 0, self.config.models.judge, {})
+                    elif decision_judgment is not None:
+                        judgment = decision_judgment
                     else:
                         judgment = for_step(self.client, 'pre_judge', 'chat').generate_json(self.config.models.judge, judge_system,
                                     judge_request['messages'], PreJudge)
@@ -601,6 +634,13 @@ class TurnPipeline:
                 degraded = True
                 judge = PreJudge(emotional_weight='low', reveal_request=None, domains_touched=[], memory_use=[])
                 trace['Pre-Judge-Retry']['fallback'] = 'conservative: L0, no Open, recent turns only'
+            trace['Pre-Judge']['used'] = 'decision' if decision_judgment is not None else 'judge'
+            if decision_trace:
+                trace['Pre-Judge']['decision'] = decision_trace
+            if proactive_decision is None:
+                research_snapshot = self.store.research.snapshot(judge_request, judge.model_dump(mode='json'),
+                    decision_trace, decision_capture, live_used=trace['Pre-Judge']['used'],
+                    latency_ms=trace.get(attempt_step, {}).get('latency_ms'), usage=trace.get(attempt_step, {}).get('usage'))
             timeline.mark("Pre-Judge", step_started)
             from cbs.reveal import generate_truth, secret_states
             if judge.reveal_request:
@@ -720,6 +760,12 @@ class TurnPipeline:
             timeline.mark('save', save_started)
             timeline.mark('processing_end')
             self.store.merge_timeline(failed_turn, timeline.snapshot())
+            refs = {'turn_id': failed_turn, 'session_id': session_id, 'conversation_id': conversation_id,
+                    'character_id': self.config.character.id, 'created_at': turn_at}
+            if background_tasks is not None:
+                background_tasks.add_task(self.store.research.record, research_snapshot, refs, self._safe_trace(trace), None)
+            else:
+                self._post_future = self._extract_pool.submit(self.store.research.record, research_snapshot, refs, self._safe_trace(trace), None)
             details = error.metadata() if isinstance(error, LLMError) else {}
             raise LLMError("返事を用意できませんでした。もう一度送ってください。",
                            kind=details.get("error_kind", "unknown"), provider=details.get("provider"),
@@ -793,7 +839,9 @@ class TurnPipeline:
         else:
             gate.set()
         self._post_future = self._extract_pool.submit(copy_context().run, self._finish_reply, turn_id, judge, post_context,
-                                   reply, trigger, gate, event_sink)
+                                   reply, trigger, gate, event_sink, research_snapshot,
+                                   {'turn_id': turn_id, 'session_id': session_id, 'conversation_id': conversation_id,
+                                    'character_id': self.config.character.id, 'created_at': turn_at})
         if event_sink:
             self._notice_deliveries[turn_id] = self._post_future
         if not self._startup_pending:
@@ -801,13 +849,15 @@ class TurnPipeline:
         self.store.merge_timeline(turn_id, timeline.snapshot())
         return response_body
 
-    def _finish_reply(self, turn_id, judge, context, reply, trigger, gate, event_sink=None):
+    @research_activity
+    def _finish_reply(self, turn_id, judge, context, reply, trigger, gate, event_sink=None, research_snapshot=None, research_refs=None):
         with span("response_gate_wait"):
             gate.wait(timeout=self.config.pipeline.background_wait_seconds)
         timeline = current_timeline.get()
         if timeline:
             timeline.mark("extract_start")
         trace = self.store.get_trace(turn_id)
+        self.store.research.record(research_snapshot, research_refs, trace, reply)
         final_check = trace.get(trace.get('Safety', {}).get('accepted_check', 'Check-2'), trace.get("Check", {}))
         check_result = (final_check.get("response") or {}).get("parsed") if not final_check.get("error") else None
         extract = self._judge_reply(trace, "Extract", {**context, "check_result": check_result}, reply, Extract)

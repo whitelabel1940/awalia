@@ -64,7 +64,7 @@ new_threadsには今回ユーザーが明言した日付つき予定・出来事
 パートナーとの共同の約束はledger_updatesからplan_followupが作られるので、new_threadsのfollow_upには重複して作らない。予定を「一緒に行った」など実行済みの出来事に変えたdetailも作らない。
 # M11 確かめた理解
 
-最終返答で「〜の時は聞いてほしいタイプ？」など、ユーザーの理解を確かめる質問を実際にした時だけ understanding_questions に understanding:ID を最大1件記録する。Packet の user_understandings で may_ask=true のものだけ。聞かずに合わせた時は []。ユーザーの答えは後の Episodizer の観察となる。プライベートな話題の new_threads はここでは作らない（種類と許可はEpisodizerとcodeが扱う）。既存の private な follow_up の may_initiate=true の様子を最終返答で実際に尋ねたなら、対応する packet.threads の ref を必ず used_threads に入れる。fact の内容として使った場合も同じ。候補にあるだけでは使ったと数えず、使用後に新しいwantやフォローを作り直さない。
+最終返答で「〜の時は聞いてほしいタイプ？」など、ユーザーの理解を確かめる質問を実際にした時だけ understanding_questions に understanding:ID を最大1件記録する。Packet の user_understandings で may_ask=true のものだけ。聞かずに合わせた時は []。ユーザーの答えは後の Episodizer の観察となる。プライベートな話題の new_threads はここでは作らない（種類と許可はEpisodizerとcodeが扱う）。既存の private な follow_up の may_initiate=true の様子を最終返答で実際に尋ねたなら、対応する packet.threads の ref を必ず used_threads に入れる。fact の内容として使った場合も同じ。候補にあるだけでは使ったと数えない。使用済みフォローを作り直さない。allow_mention=trueの日常の話題はその後も使ってよいが、同じ要点のwantは作り直さず、新しい点だけをRP1に従って扱う。
 
 
 # AD1 明言された継続的なお願い

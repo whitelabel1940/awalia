@@ -104,7 +104,7 @@ def test_api(pipeline, tmp_path):
 def test_seed():
     from cbs.config import ROOT
     from cbs.news import current_version
-    seed = Feed.model_validate_json((ROOT / 'news/news.json').read_text())
+    seed = Feed.model_validate_json((ROOT / 'news/news.json').read_text(encoding='utf-8'))
     assert seed.latest.version == current_version()
     assert seed.notices == []
     # The real feedback form; the app fills in its version and OS.

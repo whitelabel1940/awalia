@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_valid
 from cbs.paths import ROOT, resolve_paths
 
 SIMPLE_MODELS = {
+    "decision": "openrouter/google/gemini-decision-1",
     "actor": "openrouter/google/gemini-3.8-flash",
     "judge": "openrouter/openai/gpt-6-luna",
     "steward": "openrouter/openai/gpt-6-luna",
@@ -48,11 +49,19 @@ class LLMConfig(BaseModel):
 class Models(BaseModel):
     actor: str
     judge: str
+    decision: str | None = None
     steward: str
     embedding: str = "gemini-embedding-2"
     research: str | None = None
     vision: str | None = None
     stt: str | None = None
+
+    @field_validator('decision')
+    @classmethod
+    def decision_model(cls, value):
+        if value not in (None, '', 'openrouter/google/gemini-decision-1', 'gemini/gemini-decision-1'):
+            raise ValueError('場面の読み取りのサービス・モデルを確認してください。')
+        return value
 
 
 class ModelCandidate(BaseModel):
@@ -448,6 +457,12 @@ class TelemetryConfig(BaseModel):
         return https_url(value) if value else value
 
 
+class ResearchConfig(BaseModel):
+    model_config = {'extra': 'forbid'}
+    enabled: bool = False
+    shadow: bool = False
+
+
 class Config(BaseModel):
     _data_dir: Path = PrivateAttr(default_factory=lambda: resolve_paths()[0])
     _characters_root: Path = PrivateAttr(default_factory=lambda: resolve_paths()[1])
@@ -477,6 +492,7 @@ class Config(BaseModel):
     setup_helper: SetupHelperConfig = Field(default_factory=SetupHelperConfig)
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
     share: ShareConfig = Field(default_factory=ShareConfig)
+    research: ResearchConfig = Field(default_factory=ResearchConfig)
     storage: "StorageConfig" = Field(default_factory=lambda: StorageConfig())
 
 
@@ -535,6 +551,15 @@ def load_config(path: Path = ROOT / "config.toml", *, data_dir=None, secrets_dir
         with (data_dir / "settings.toml").open("rb") as stream:
             settings = tomllib.load(stream)
             values = overlay(values, settings)
+    if settings.get('models') and 'decision' not in settings['models']:
+        # Compare effective legacy routes, including defaults and bare Gemini names.
+        provider = values['llm']['provider']
+        def legacy(models):
+            return {r: (m if '/' in m else provider + '/' + m) if m else ''
+                    for r, m in models.items() if r != 'decision'}
+        matched = next((p['models'].get('decision', '') for p in values.get('advanced', {}).get('presets', [])
+                        if legacy(p['models']) == legacy(values['models'])), '')
+        values['models']['decision'] = matched
     values.setdefault("llm", {})["mode"] = settings.get("llm", {}).get("mode", "advanced" if settings.get("models") else values["llm"].get("mode", "simple"))
     if without_keys:
         # Clear inherited credentials too, including custom provider env names.
@@ -555,6 +580,8 @@ def load_config(path: Path = ROOT / "config.toml", *, data_dir=None, secrets_dir
         if models.get('stt') == 'local/kotoba-whisper':
             models['stt'] = 'local/haas-ja'
     config = apply_llm_mode(Config.model_validate(values))
+    # Simple mode always runs on the OpenRouter key, so the Decision route adds no key:
+    # every simple-mode user, including one with a different conversation model, gets it.
     config._data_dir = data_dir
     config._characters_root = characters_root
     return config

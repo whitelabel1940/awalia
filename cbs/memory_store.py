@@ -151,7 +151,8 @@ class MemoryStore:
             from cbs.autonomy_store import eligible
             for fact in facts:
                 threads = connection.execute("SELECT * FROM threads WHERE character_id=? AND kind='follow_up' AND source_ref=?", (character_id, f"fact:{fact['id']}")).fetchall()
-                fact['may_initiate'] = fact['status'] == 'current' and fact['allow_mention'] and any(eligible(t) for t in threads)
+                fact['may_initiate'] = fact['status'] == 'current' and (fact['allow_mention'] or
+                    (fact.get('follow_up_allowed', False) and any(eligible(t) for t in threads)))
             return facts
 
     def save_memories(self, job, character_id, output, vectors, turns, trace):

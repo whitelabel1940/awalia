@@ -75,6 +75,9 @@ CREATE TABLE IF NOT EXISTS private_preferences (
  character_id TEXT NOT NULL, category TEXT NOT NULL, allow_mention INTEGER NOT NULL,
  PRIMARY KEY(character_id, category)
 );
+CREATE TABLE IF NOT EXISTS private_mention_notices (
+ character_id TEXT PRIMARY KEY
+);
 """
 
 
@@ -107,6 +110,24 @@ def stage(item, observations, cfg, current=None):
 
 
 class KnowingStore:
+    def migrate_private_mentions(self, db):
+        db.execute('CREATE TABLE IF NOT EXISTS storage_migrations (name TEXT PRIMARY KEY)')
+        name = 'private-daily-mention-v1'
+        if db.execute('SELECT 1 FROM storage_migrations WHERE name=?', (name,)).fetchone():
+            return
+        db.execute('INSERT OR IGNORE INTO private_mention_notices '
+                   'SELECT character_id FROM sessions UNION SELECT character_id FROM user_facts '
+                   'UNION SELECT character_id FROM private_preferences')
+        db.execute('DELETE FROM private_preferences')
+        db.execute('UPDATE user_facts SET mention_override=NULL WHERE mention_override=1')
+        for row in db.execute('SELECT DISTINCT character_id FROM threads').fetchall():
+            self._sync_private_threads(db, row['character_id'])
+        db.execute('INSERT INTO storage_migrations VALUES (?)', (name,))
+
+    def private_mention_notice(self, character_id):
+        with self.connect() as db:
+            return bool(db.execute('SELECT 1 FROM private_mention_notices WHERE character_id=?', (character_id,)).fetchone())
+
     def private_catalog(self):
         from cbs.config import KnowingConfig
         return getattr(self, 'knowing_config', None) or KnowingConfig()
@@ -129,14 +150,32 @@ class KnowingStore:
         category = category if category in settings else 'other'
         override = fact.get('mention_override')
         allowed = bool(override) if override is not None else settings[category]['allow_mention']
+        # The temporary-health exception is one-shot and never overrides an explicit no.
+        follow_up_allowed = allowed or (category == 'temporary_health' and override is None)
         return {**fact, 'private_category': category, 'category_label': settings[category]['label'],
                 'category_allow_mention': settings[category]['allow_mention'],
                 'mention_override': None if override is None else bool(override),
-                'allow_mention': allowed, 'may_initiate': False}
+                'allow_mention': allowed, 'follow_up_allowed': follow_up_allowed,
+                'may_initiate': allowed and fact.get('status') == 'current'}
 
     def private_context(self, character_id):
-        return [{k: f[k] for k in ('id','content','private_category','allow_mention','may_initiate')}
+        return [{'ref': f"fact:{f['id']}", **{k: f[k] for k in ('id','content','private_category','allow_mention','may_initiate')}}
                 for f in self.list_user_facts(character_id, current_only=True) if f['private']]
+
+    def consume_private_followups(self, db, character_id, refs):
+        """The voice judge identifies actual questions; code validates their current records."""
+        from cbs.autonomy_store import eligible
+        for ref in dict.fromkeys(refs):
+            if not ref.startswith('fact:'):
+                continue
+            fact = db.execute("SELECT * FROM user_facts WHERE character_id=? AND id=? AND private=1 AND status='current'",
+                              (character_id, ref[5:])).fetchone()
+            if not fact or not self.fact_policy(fact, db)['follow_up_allowed']:
+                continue
+            for thread in db.execute("SELECT * FROM threads WHERE character_id=? AND source_ref=? AND kind='follow_up' AND status='open'",
+                                     (character_id, ref)).fetchall():
+                if eligible(thread):
+                    self._thread_status(db, thread, 'used')
 
     def set_private_settings(self, character_id, values):
         if set(values) - self.private_catalog().private_categories.keys():
@@ -147,6 +186,7 @@ class KnowingStore:
                 db.execute('INSERT INTO private_preferences VALUES (?,?,?) ON CONFLICT(character_id,category) DO UPDATE SET allow_mention=excluded.allow_mention',
                            (character_id, category, allowed))
             self._sync_private_threads(db, character_id)
+            db.execute('DELETE FROM private_mention_notices WHERE character_id=?', (character_id,))
 
     def _sync_private_threads(self, db, character_id):
         # Pause permission-blocked follow-ups; never reopen used/expired/dropped ones.
@@ -156,13 +196,15 @@ class KnowingStore:
             if not fact:
                 self._thread_status(db, thread, 'dropped')
             elif fact['private']:
-                self._thread_status(db, thread, 'open' if self.fact_policy(fact, db)['allow_mention'] else 'blocked')
+                policy = self.fact_policy(fact, db)
+                allowed = policy['allow_mention'] or (thread['kind'] == 'follow_up' and policy['follow_up_allowed'])
+                self._thread_status(db, thread, 'open' if allowed else 'blocked')
         # Enabling a category/fact also applies to a pending event learned while disabled.
         from cbs.memory import UserFact
         for fact in db.execute("SELECT * FROM user_facts WHERE character_id=? AND status='current' AND private=1 AND follow_up=1 AND event_date IS NOT NULL", (character_id,)).fetchall():
-            if self.fact_policy(fact, db)['allow_mention']:
+            if self.fact_policy(fact, db)['follow_up_allowed']:
                 self._fact_thread(db,character_id,fact['id'],UserFact(operation='confirm',content=fact['content'],private=True,
-                    private_category=fact['private_category'],importance=fact['importance'],pinned=bool(fact['pinned']),event_date=fact['event_date']),None)
+                    private_category=fact['private_category'],importance=fact['importance'],pinned=bool(fact['pinned']),event_date=fact['event_date'],follow_up=True),None)
 
     def knowing_setting(self, character_id):
         with self.connect() as db:
@@ -345,7 +387,7 @@ def rebuild(pipeline, *, force=False, batch_id=None):
     observations = sorted(store.list_observations(cid),key=lambda o:(o['observed_at'],o['id']))[-cfg.observation_max:]
     if not observations:
         return {'skipped': 'no observations'}
-    today = clock.now().date().isoformat()
+    today = clock.today().isoformat()
     with store.connect() as db:
         if not force and db.execute("SELECT 1 FROM knowing_runs WHERE character_id=? AND local_day=?", (cid,today)).fetchone():
             return {'skipped': 'already maintained'}
@@ -356,7 +398,8 @@ def rebuild(pipeline, *, force=False, batch_id=None):
     seen = [{k: o[k] for k in ('id','kind','summary','response','observed_at')} for o in observations]
     previous = [{k: u[k] for k in ('id','kind','text','condition','support','counter','stage','status','last_observed_at','expires_at') if k in u}
                 for u in store.list_understandings(cid,cfg)]
-    context = {'observations': seen, 'previous_understandings': previous, 'user_corrections':feedback, 'current_datetime':clock.iso()}
+    context = {'observations': seen, 'previous_understandings': previous, 'user_corrections':feedback, 'current_datetime':clock.iso(),
+               'private_categories': store.private_settings(cid), 'private_facts_policy': store.private_context(cid)}
     trace = {}
     status = 'failed'
     try:

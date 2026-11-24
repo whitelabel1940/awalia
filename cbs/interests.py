@@ -83,7 +83,7 @@ class InterestStore:
                 if fact['source_turn']:
                     turn = db.execute('SELECT * FROM turns WHERE id=?', (fact['source_turn'],)).fetchone()
                     db.execute('INSERT INTO interest_evidence (interest_id, conversation_id, source_turn, local_day, revision) VALUES (?, ?, ?, ?, 0)',
-                               (row.lastrowid, turn['conversation_id'], turn['id'], clock.parse(turn['assistant_at'] or turn['created_at']).date().isoformat()))
+                               (row.lastrowid, turn['conversation_id'], turn['id'], clock.local_date(turn['assistant_at'] or turn['created_at']).isoformat()))
                     db.execute('UPDATE interests SET mention_count=1 WHERE id=?', (row.lastrowid,))
                 self._interest_change(db, row.lastrowid, 'migration', None, fact['source_turn'], fact['created_at'])
             db.execute('DELETE FROM canon_facts WHERE id=?', (fact['id'],))
@@ -157,7 +157,7 @@ class InterestStore:
                                (proposal.topic, proposal.kind, proposal.detail, pack_vector(vector), item_id))
             for turn in evidence:
                 db.execute('INSERT OR IGNORE INTO interest_evidence (interest_id, conversation_id, source_episode, source_turn, local_day, revision, source_activity) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                           (item_id, conversation_id, episode_ids[proposal.source_episode], turn.get('source_turn', turn['id']), clock.parse(turn.get('assistant_at') or turn['created_at']).date().isoformat(), revision, activity_id))
+                           (item_id, conversation_id, episode_ids[proposal.source_episode], turn.get('source_turn', turn['id']), clock.local_date(turn.get('assistant_at') or turn['created_at']).isoformat(), revision, activity_id))
             days = db.execute('SELECT COUNT(DISTINCT local_day) FROM interest_evidence WHERE interest_id=? AND revision=?', (item_id, revision)).fetchone()[0]
             conversations = db.execute('SELECT COUNT(DISTINCT COALESCE(conversation_id, -source_activity)) FROM interest_evidence WHERE interest_id=? AND revision=?', (item_id, revision)).fetchone()[0]
             count = db.execute('SELECT COUNT(*) FROM (SELECT DISTINCT COALESCE(conversation_id, -source_activity), local_day FROM interest_evidence WHERE interest_id=?)', (item_id,)).fetchone()[0]

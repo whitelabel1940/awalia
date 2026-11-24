@@ -1,6 +1,6 @@
 {
   "name": "awalia-desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {"tauri": "tauri", "dev": "tauri dev", "build": "tauri build --no-bundle"},
   "devDependencies": {"@tauri-apps/cli": "^2"}

@@ -32,8 +32,38 @@ def iso():
     return now().isoformat()
 
 
-def day(value, boundary_hour=4):
+# The day people live by: before 4am it is still the previous day. Same value as
+# config.toml [memory] day_boundary_hour, which splits conversations.
+DAY_START_HOUR = 4
+
+
+def day(value, boundary_hour=DAY_START_HOUR):
     return (parse(value) - timedelta(hours=boundary_hour)).date().isoformat()
+
+
+def local_date(value=None):
+    """The living day of a moment. A plain date (or YYYY-MM-DD) is already a day and stays as it is."""
+    if value is None:
+        value = now()
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and len(value) == 10:
+        return date.fromisoformat(value)
+    return (parse(value) - timedelta(hours=DAY_START_HOUR)).date()
+
+
+def today():
+    return local_date()
+
+
+def day_start(value):
+    """The moment a living day begins (DAY_START_HOUR on that calendar date)."""
+    return parse(local_date(value)) + timedelta(hours=DAY_START_HOUR)
+
+
+def sql_day(column):
+    """SQL for the living day of a stored local ISO timestamp (the offset is dropped, so no UTC shift)."""
+    return f"date(substr({column},1,19),'-{DAY_START_HOUR} hours')"
 
 
 def absolute(value):
@@ -43,7 +73,7 @@ def absolute(value):
 
 def relative(value, current=None):
     dt, current = parse(value), parse(current) if current else now()
-    days = (current.date() - dt.date()).days
+    days = (local_date(current) - local_date(value)).days
     md = f"{dt.month}/{dt.day}"
     if days < 0:
         return "明日" if days == -1 else f"{-days}日後（{md}）"
@@ -74,7 +104,7 @@ def season(month):
 def casual(value, current=None):
     """The loose way people say it in conversation; relative() stays the precise reference."""
     dt, current = parse(value), parse(current) if current else now()
-    days = (current.date() - dt.date()).days
+    days = (local_date(current) - local_date(value)).days
     if days < 0:
         ahead = -days
         if ahead == 1:
@@ -145,15 +175,17 @@ def stamp(value, current=None):
 
 
 def calendar(value):
-    """LLMs select supplied dates instead of performing calendar arithmetic."""
-    dt = parse(value)
-    monday = dt.date() - timedelta(days=dt.weekday())
-    return {"おととい": (dt.date() - timedelta(days=2)).isoformat(),
-            "一昨日": (dt.date() - timedelta(days=2)).isoformat(),
-            "昨日": (dt.date() - timedelta(days=1)).isoformat(), "今日": dt.date().isoformat(),
-            "明日": (dt.date() + timedelta(days=1)).isoformat(),
+    """LLMs select supplied dates instead of performing calendar arithmetic.
+
+    Counted from the living day: at 0:30, 「明日」 is the day after waking up."""
+    base = local_date(value)
+    monday = base - timedelta(days=base.weekday())
+    return {"おととい": (base - timedelta(days=2)).isoformat(),
+            "一昨日": (base - timedelta(days=2)).isoformat(),
+            "昨日": (base - timedelta(days=1)).isoformat(), "今日": base.isoformat(),
+            "明日": (base + timedelta(days=1)).isoformat(),
             **{f"{label}{weekday}曜": (monday + timedelta(days=offset + i)).isoformat()
                for label, offset in (("先週", -7), ("今週", 0), ("来週", 7))
                for i, weekday in enumerate(WEEKDAYS)},
-            **{f"次の{weekday}曜": (dt.date() + timedelta(days=(i - dt.weekday()) % 7 or 7)).isoformat()
+            **{f"次の{weekday}曜": (base + timedelta(days=(i - base.weekday()) % 7 or 7)).isoformat()
                for i, weekday in enumerate(WEEKDAYS)}}

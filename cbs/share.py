@@ -46,7 +46,7 @@ def install_share(app, selected, data_dir):
         with lock:
             invite = available and count > 10 and not read().get(cid, {}).get('start')
         return {'available': available, 'invite': invite, 'name': pipeline.character.model.display_name,
-                'day': clock.now().date().isoformat(), **pipeline.config.share.model_dump()}
+                'day': clock.today().isoformat(), **pipeline.config.share.model_dump()}
 
     @app.post('/api/share/start')
     def start(body: StartInput):

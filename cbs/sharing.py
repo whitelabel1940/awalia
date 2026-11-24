@@ -49,7 +49,7 @@ def share_candidates(pipeline, query, *, kinds=('share', 'want'), exclude=None):
     store, cid = pipeline.store, pipeline.config.character.id
     since = clock.now() - timedelta(days=pipeline.config.autonomy.proactive_history_days)
     items = [t for t in store.list_threads(cid) if t['ref'] != exclude and t['kind'] in kinds
-             and not t.get('private') and clock.parse(t['created_at']) <= clock.now()
+             and (not t.get('private') or t.get('allow_mention')) and clock.parse(t['created_at']) <= clock.now()
              and (t['status'] == 'open' or (t['status'] == 'used'
                   and since <= clock.parse(t['updated_at']) <= clock.now()))]
     return [{k: v for k, v in t.items() if k != 'history'} for t in

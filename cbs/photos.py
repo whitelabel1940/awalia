@@ -11,6 +11,7 @@ import warnings
 from PIL import Image, ImageOps
 from pydantic import BaseModel, ConfigDict, Field
 
+from cbs import clock
 from cbs.llm import LLMError, RoutingLLMClient
 from cbs.config import key_env, key_set
 from cbs.runtime import read_prompt
@@ -245,6 +246,8 @@ def delete_photo(pipeline, photo_id):
         photo = dict(photo)
         turn = db.execute('SELECT * FROM turns WHERE id=?', (photo['source_turn'],)).fetchone()
         affected = {turn['id'], *[r[0] for r in db.execute('SELECT turn_id FROM photo_turn_sources WHERE photo_id=?', (photo_id,))]}
+        research_refs = [dict(r) for r in db.execute('SELECT id AS turn_id,session_id,created_at FROM turns WHERE id IN (' +
+                         ','.join('?' for _ in affected) + ')', list(affected))]
         db.execute('CREATE TEMP TABLE affected_turns (id INTEGER PRIMARY KEY)')
         db.executemany('INSERT INTO affected_turns VALUES (?)', [(i,) for i in affected])
         jobs = {r[0] for r in db.execute('SELECT DISTINCT j.id FROM memory_jobs j JOIN turns t ON t.conversation_id=j.conversation_id AND t.id BETWEEN j.first_turn AND j.last_turn JOIN affected_turns a ON a.id=t.id')}
@@ -309,7 +312,8 @@ def delete_photo(pipeline, photo_id):
             # Feelings and monologues consume the previous state: remove their suffix.
             for table in ('inner_states', 'monologues'):
                 db.execute(f'DELETE FROM {table} WHERE character_id=? AND created_at>=?', (cid, earliest))
-        db.execute('DELETE FROM diaries WHERE character_id=? AND day IN (SELECT substr(created_at,1,10) FROM turns WHERE id IN (SELECT id FROM affected_turns))', (cid,))
+        db.execute('DELETE FROM diaries WHERE character_id=? AND day IN (SELECT ' + clock.sql_day('created_at') +
+                   ' FROM turns WHERE id IN (SELECT id FROM affected_turns))', (cid,))
         # Traces contain copies of old prompts. Remove them, including paraphrased replies
         # from model context; the visible original conversation remains readable.
         db.execute("UPDATE turns SET trace_json='{}' WHERE id IN (SELECT id FROM affected_turns)")
@@ -323,6 +327,8 @@ def delete_photo(pipeline, photo_id):
         if db.execute('PRAGMA foreign_key_check').fetchone():
             raise ValueError('写真の関連記録を削除できませんでした。')
         photo_path(store, photo_id).unlink(missing_ok=True)
+    if research := getattr(store, 'research', None):
+        research.mark_deleted(research_refs, 'photo_redaction')
 
 
 def model_turns(store, turns):

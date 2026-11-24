@@ -108,7 +108,7 @@ export async function newsScreen(parent){
     c.append(title,node('time',notice.date,'small muted'),node('p',notice.body,'text'));
     for(const item of notice.links||[]){const p=node('p');link(p,item.label,item.url);c.append(p);}parent.append(c);
   }
-  if(data.feedback_url){const c=node('section',undefined,'card');c.append(node('h3','フィードバックをお願いします'));link(c,'フォームを開く',data.feedback_url);parent.append(c);}
+  if(data.feedback_url){const c=node('section',undefined,'card');c.append(node('h3','フィードバックをお願いします'),node('p','Awaliaのご利用ありがとうございます！\nご意見やご感想、不具合のご連絡や、今後の開発についてのご要望などなど、ぜひお気軽にお聞かせ下さい。','text'));link(c,'フォームを開く',data.feedback_url);parent.append(c);}
   // The caller commits the detached page before marking precisely these IDs read.
   return async()=>{if(data.notices.length){const own=++revision;const updated=await api('/api/news/read',{ids:data.notices.map(n=>n.id)});if(own===revision)paintNewsBadges(updated);}};
 }

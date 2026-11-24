@@ -34,6 +34,13 @@ const input=(label,value)=>{
 };
 const control=label=>[...document.querySelectorAll('label')].find(l=>l.firstChild?.textContent===label)?.querySelector('input,select');
 const keys=()=>[...document.querySelectorAll('input[type=password]')].filter(e=>e.closest('label').isConnected&&e.closest('label').textContent!=='OpenRouter の API キー').map(e=>e.closest('label').textContent);
+const order=[...document.querySelectorAll('.srow')].map(e=>e.querySelector('label')?.firstChild?.textContent);
+assert(order.indexOf('会話のサービス')<order.indexOf('場面の読み取りのサービス'));
+assert(order.indexOf('場面の読み取りのサービス')<order.indexOf('返事の確認のサービス'));
+assert.deepEqual([...control('場面の読み取りのサービス').options].map(e=>e.value),['openrouter','gemini','none']);
+input('場面の読み取りのサービス','gemini');assert.equal(control('場面の読み取りのモデル名').value,'gemini-decision-1');assert.equal(control('AI の組み合わせ').value,'custom');
+input('場面の読み取りのサービス','none');assert(control('場面の読み取りのモデル名').disabled);
+input('場面の読み取りのサービス','openrouter');assert.equal(control('場面の読み取りのモデル名').value,'google/gemini-decision-1');
 assert.equal(control('AI の組み合わせ').value,'mixed');
 assert(document.body.textContent.includes('Haas-ja は日本語向けの高速な文字起こし'));
 assert(!document.body.textContent.includes('whisper.cpp'));
@@ -58,7 +65,7 @@ assert.equal(control('記憶の検索のモデル名').value,'ruri-v3-130m');
 for(const id of ['gemini','claude','openai','mixed']){
   input('AI の組み合わせ',id);
   const preset=cfg.advanced_presets.find(p=>p.id===id);
-  for(const [role,title] of [['actor','会話'],['judge','判断'],['steward','記憶の整理'],['embedding','記憶の検索']]){
+  for(const [role,title] of [['actor','会話'],['judge','返事の確認'],['steward','記憶の整理'],['embedding','記憶の検索']]){
     const [provider,...model]=preset.models[role].split('/');
     assert.equal(control(`${title}のサービス`).value,provider);assert.equal(control(`${title}のモデル名`).value,model.join('/'));
   }
